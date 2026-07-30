@@ -9,13 +9,10 @@ class TestAstroProc(unittest.TestCase):
     def setUp(self):
         # Create a temporary directory for testing projects
         self.test_dir = tempfile.mkdtemp()
+        self.venv_python = "/home/peter/.openclaw/workspace/agents/codewarrior/venv/bin/python3"
         self.bin_path = "/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc"
         
         # We need to override the projects_root in the script for testing.
-        # Since the script currently has it hardcoded relative to __file__, 
-        # I'll modify the script slightly to allow an environment variable for the projects root,
-        # or I can just patch the script for tests. 
-        # Actually, a better way is to modify the script to check for an environment variable.
         os.environ["ASTROPROC_PROJECTS_ROOT"] = self.test_dir
 
     def tearDown(self):
@@ -23,7 +20,7 @@ class TestAstroProc(unittest.TestCase):
 
     def run_astroproc(self, args):
         return subprocess.run(
-            [self.bin_path] + args,
+            [self.venv_python, self.bin_path] + args,
             env=os.environ.copy(),
             capture_output=True,
             text=True

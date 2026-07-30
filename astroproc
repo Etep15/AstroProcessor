@@ -5,6 +5,17 @@ import re
 import sys
 from pathlib import Path
 
+# Import from the internal package
+try:
+    from src.astroproc.fits_utils import get_fits_header, get_observation_date, get_filter_name
+    from src.astroproc.importer import AstroImporter
+except ImportError:
+    # Fallback for when running as a script directly without PYTHONPATH
+    import sys
+    sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+    from astroproc.fits_utils import get_fits_header, get_observation_date, get_filter_name
+    from astroproc.importer import AstroImporter
+
 def sanitize_name(name):
     if not name:
         return None
@@ -12,11 +23,11 @@ def sanitize_name(name):
     name = name.strip()
     if not name:
         return None
-    
+
     # Preserve letters, numbers, spaces, hyphens, underscores. Replace others with '_'
     # \w includes letters, numbers, and underscore. We add space and hyphen.
     sanitized = re.sub(r'[^a-zA-Z0-9\s\-_]', '_', name)
-    
+
     return sanitized
 
 def create_project(project_name, projects_root):
@@ -41,13 +52,13 @@ def create_project(project_name, projects_root):
 
     projects_root_path = Path(projects_root)
     projects_root_path.mkdir(parents=True, exist_ok=True)
-    
+
     project_path = projects_root_path / sanitized
-    
+
     if project_path.exists():
         print(f"Error: Project directory already exists at {project_path}")
         sys.exit(1)
-    
+
     try:
         project_path.mkdir()
         print("Project created successfully.")
@@ -58,26 +69,108 @@ def create_project(project_name, projects_root):
         print(f"Error creating project directory: {e}")
         sys.exit(1)
 
+def handle_copy(args, projects_root, astro_root):
+    project_name = args.copy
+    source_dir = args.source_directory
+    capture_type = args.type
+
+    # Resolve project path using the same sanitization
+    sanitized_project = sanitize_name(project_name)
+    if not sanitized_project:
+        print("Error: Invalid project name.")
+        sys.exit(1)
+
+    calibration_root = Path(astro_root) / 'calibration'
+
+    print(f"Resolved Plan:")
+    print(f"  Project: {project_name} (Sanitized: {sanitized_project})")
+    print(f"  Destination: {Path(projects_root) / sanitized_project}")
+    print(f"  Source Directory: {source_dir}")
+    print(f"  Capture Type: {capture_type if capture_type else 'All supported'}")
+    print("-" * 40)
+
+    try:
+        importer = AstroImporter(sanitized_project, source_dir, projects_root, calibration_root)
+        # Pass type as a list if provided, else None for all
+        types = [capture_type] if capture_type else None
+        report = importer.run_import(capture_types=types)
+
+        # Summary Output
+        print("\nImport Summary:")
+        print(f"  Lights: {report['lights']['discovered']} discovered, {report['lights']['copied']} copied, {report['lights']['already_present']} already present")
+        print(f"  Flats: {report['flats']['discovered']} discovered, {report['flats']['copied']} copied, {report['flats']['matched_by_date']} matched by date")
+        print(f"  Darks: {report['darks']['copied']} copied")
+        print(f"  Bias: {report['bias']['copied']} copied")
+        print(f"  Collisions: {report['collisions']} files safely renamed")
+
+        print("\nLights sorted by filter:")
+        for f, count in report['lights']['filters'].items():
+            print(f"  - {f}: {count}")
+
+        print("\nFlats sorted by filter:")
+        for f, count in report['flats']['filters'].items():
+            print(f"  - {f}: {count}")
+
+        if report['warnings']:
+            print(f"\nWarnings ({len(report['warnings'])}):")
+            for w in report['warnings']:
+                print(f"  - {w}")
+
+        print(f"\nFinal project path: {importer.project_path}")
+        status = "Succeeded with warnings" if report['warnings'] else "Succeeded"
+        print(f"Status: {status}")
+        sys.exit(0)
+
+    except FileNotFoundError as e:
+        print(f"Fatal Error: {e}")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Fatal Error: {e}")
+        sys.exit(1)
+    except RuntimeError as e:
+        print(f"Fatal Error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected Error: {e}")
+        sys.exit(1)
+
 def main():
     parser = argparse.ArgumentParser(
         prog="astroproc",
         description="AstroProcessor: A tool for managing astrophotography projects.",
         add_help=False
     )
-    
+
     parser.add_argument("-h", "--help", action="help", help="Show this help message and exit")
     parser.add_argument("-np", "--new-project", metavar="NAME", help="Create a new astrophotography project")
-    
+
+    # Step 3 Arguments
+    parser.add_argument("-c", "--copy", metavar="PROJECT", help="Import files into an existing project")
+    parser.add_argument("-sd", "--source-directory", metavar="DIR", help="Source directory containing ASIAIR files")
+    parser.add_argument("-t", "--type", metavar="TYPE", help="Restrict import to a specific ASIAIR capture type (e.g., autorun)")
+
     args = parser.parse_args()
-    
+
+    # Determine roots
+    astro_root = Path(__file__).parent.absolute() if '__file__' in locals() else Path(".")
+    # The current setup puts the script in AstroProcessor/, but the project dir is Projects/
+    # Let's ensure we are relative to the AstroProcessor root
+    if astro_root.name != 'AstroProcessor':
+        # If the script is in a subdir, go up
+        while astro_root.name != 'AstroProcessor' and astro_root.parent != astro_root.parent.parent:
+            astro_root = astro_root.parent
+
+    projects_root = os.environ.get("ASTROPROC_PROJECTS_ROOT")
+    if not projects_root:
+        projects_root = astro_root / "Projects"
+
     if args.new_project:
-        # Use an environment variable for the projects root, or default to the workspace/Projects dir.
-        projects_root = os.environ.get("ASTROPROC_PROJECTS_ROOT")
-        if not projects_root:
-            script_dir = Path(__file__).parent.absolute()
-            projects_root = script_dir / "Projects"
-        
         create_project(args.new_project, projects_root)
+    elif args.copy:
+        if not args.source_directory:
+            print("Error: --source-directory (-sd) is required when using --copy (-c).")
+            sys.exit(1)
+        handle_copy(args, projects_root, astro_root)
     else:
         parser.print_help()
         sys.exit(0)
