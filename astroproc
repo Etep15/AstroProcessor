@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+import argparse
+import os
+import re
+import sys
+from pathlib import Path
+
+def sanitize_name(name):
+    if not name:
+        return None
+    # Trim leading and trailing whitespace
+    name = name.strip()
+    if not name:
+        return None
+    
+    # Preserve letters, numbers, spaces, hyphens, underscores. Replace others with '_'
+    # \w includes letters, numbers, and underscore. We add space and hyphen.
+    sanitized = re.sub(r'[^a-zA-Z0-9\s\-_]', '_', name)
+    
+    return sanitized
+
+def create_project(project_name, projects_root):
+    if not project_name:
+        print("Error: Project name cannot be empty.")
+        sys.exit(1)
+
+    # Prevent path traversal on original name
+    if ".." in project_name or project_name.startswith("/") or project_name.startswith("."):
+        print(f"Error: Invalid project name '{project_name}' contains prohibited path elements.")
+        sys.exit(1)
+
+    sanitized = sanitize_name(project_name)
+    if not sanitized:
+        print("Error: Project name cannot be empty.")
+        sys.exit(1)
+
+    # Double check sanitized name just in case
+    if ".." in sanitized or sanitized.startswith("/") or sanitized.startswith("."):
+        print(f"Error: Invalid project name '{project_name}' contains prohibited path elements.")
+        sys.exit(1)
+
+    projects_root_path = Path(projects_root)
+    projects_root_path.mkdir(parents=True, exist_ok=True)
+    
+    project_path = projects_root_path / sanitized
+    
+    if project_path.exists():
+        print(f"Error: Project directory already exists at {project_path}")
+        sys.exit(1)
+    
+    try:
+        project_path.mkdir()
+        print("Project created successfully.")
+        print(f"Original name: {project_name}")
+        print(f"Project name: {sanitized}")
+        print(f"Project path: {project_path}")
+    except Exception as e:
+        print(f"Error creating project directory: {e}")
+        sys.exit(1)
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="astroproc",
+        description="AstroProcessor: A tool for managing astrophotography projects.",
+        add_help=False
+    )
+    
+    parser.add_argument("-h", "--help", action="help", help="Show this help message and exit")
+    parser.add_argument("-np", "--new-project", metavar="NAME", help="Create a new astrophotography project")
+    
+    args = parser.parse_args()
+    
+    if args.new_project:
+        # Use an environment variable for the projects root, or default to the workspace/Projects dir.
+        projects_root = os.environ.get("ASTROPROC_PROJECTS_ROOT")
+        if not projects_root:
+            script_dir = Path(__file__).parent.absolute()
+            projects_root = script_dir / "Projects"
+        
+        create_project(args.new_project, projects_root)
+    else:
+        parser.print_help()
+        sys.exit(0)
+
+if __name__ == "__main__":
+    main()
