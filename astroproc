@@ -75,7 +75,7 @@ def main():
         projects_root = os.environ.get("ASTROPROC_PROJECTS_ROOT")
         if not projects_root:
             script_dir = Path(__file__).parent.absolute()
-            projects_root = script_dir / "Projects"
+            projects_root = script_dir / "Project"
         
         create_project(args.new_project, projects_root)
     else:
