@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 from datetime import timedelta
 from .fits_utils import get_fits_header, get_observation_date, get_filter_name
+from .progress import ProgressReporter
 
 def calculate_hash(path, chunk_size=65536):
     """Calculate SHA256 hash of a file to verify identity."""
