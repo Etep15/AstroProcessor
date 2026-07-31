@@ -85,11 +85,12 @@ def get_all_fit_files(root_path):
     return fits_files
 
 class AstroImporter:
-    def __init__(self, project_name, source_dir, projects_root, calibration_root):
+    def __init__(self, project_name, source_dir, projects_root, calibration_root, source_project_name=None):
         self.project_name = project_name
         self.source_dir = Path(source_dir).resolve()
         self.projects_root = Path(projects_root).resolve()
         self.calibration_root = Path(calibration_root).resolve()
+        self.source_project_name = source_project_name or project_name
         
         # Validate source_dir
         if not self.source_dir.exists() or not self.source_dir.is_dir():
@@ -140,8 +141,8 @@ class AstroImporter:
             if not ct_dir.exists():
                 continue
             
-            # <source-directory>/<CaptureType>/Light/<project-name>
-            light_src_dir = ct_dir / 'Light' / self.project_name
+            # <source-directory>/<CaptureType>/Light/<source-project-name>
+            light_src_dir = ct_dir / 'Light' / self.source_project_name
             if light_src_dir.exists():
                 files = get_all_fit_files(light_src_dir)
                 report['lights']['discovered'] += len(files)

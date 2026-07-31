@@ -90,7 +90,7 @@ def handle_copy(args, projects_root, astro_root):
     print("-" * 40)
 
     try:
-        importer = AstroImporter(sanitized_project, source_dir, projects_root, calibration_root)
+        importer = AstroImporter(sanitized_project, source_dir, projects_root, calibration_root, source_project_name=args.source_project)
         # Pass type as a list if provided, else None for all
         types = [capture_type] if capture_type else None
         report = importer.run_import(capture_types=types)
@@ -146,6 +146,7 @@ def main():
 
     # Step 3 Arguments
     parser.add_argument("-c", "--copy", metavar="PROJECT", help="Import files into an existing project")
+    parser.add_argument("-sp", "--source-project", metavar="NAME", help="The name of the project folder in the ASIAIR source (defaults to project name)")
     parser.add_argument("-sd", "--source-directory", metavar="DIR", help="Source directory containing ASIAIR files")
     parser.add_argument("-t", "--type", metavar="TYPE", help="Restrict import to a specific ASIAIR capture type (e.g., autorun)")
 
