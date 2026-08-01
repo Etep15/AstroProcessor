@@ -9,19 +9,26 @@ class ProgressReporter:
         self.label = label
         self.total = total
         self.completed = 0
+        self.stats = {}
         # Print the initial progress prefix
         print(f"{self.label} {self.total}", end="", flush=True)
 
-    def increment(self):
+    def increment(self, stat_key=None):
         """Record one completed item and print a progress period."""
         self.completed += 1
+        if stat_key:
+            self.stats[stat_key] = self.stats.get(stat_key, 0) + 1
         print(".", end="", flush=True)
 
     def finish(self, result_text=""):
         """End the progress line and print completion result."""
-        result = f" done"
+        result = " done"
         if result_text:
             result += f" ({result_text})"
+        elif self.stats:
+            # Auto-generate stats text if available
+            stats_parts = [f"{k}: {v}" for k, v in self.stats.items()]
+            result += f" ({', '.join(stats_parts)})"
         print(f"{result}", flush=True)
 
     def fail(self, error_msg):

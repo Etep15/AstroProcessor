@@ -35,18 +35,13 @@ def safe_copy(src_path, dest_dir, report):
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     
-    # Check if the file already exists anywhere in the destination project's subdirs
-    # for lights and flats, because it might have been sorted into a filter folder.
-    # We look for any file with the same name in the project path.
-    # This is a bit expensive but necessary for the "safe to run more than once" requirement.
-    
-    # In the context of this function, dest_dir is likely Projects/<project>/lights or /flats.
-    # We check if any file with the same name exists in that root.
-    
-    # To keep it efficient, we can just check the current dest_dir and any subdirs.
-    # For calibration, it's simpler.
+    # Check if the file already exists in the destination directory.
+    # For calibration files, we only care if it exists in its specific calibration dir.
+    # For lights/flats, we may have grouped by filter, but safe_copy is called with
+    # the filter-specific dest_dir in recent versions, or the general one.
     
     found_identical = False
+    # We search for the filename in the immediate dest_dir and subdirectories.
     for existing in dest_dir.rglob(src_path.name):
         if calculate_hash_fixed(src_path) == calculate_hash_fixed(existing):
             found_identical = True
@@ -60,8 +55,6 @@ def safe_copy(src_path, dest_dir, report):
     
     # If a file exists with the same name but is DIFFERENT, we rename the new one.
     if dest_path.exists():
-        # We already checked for identicals in the whole tree, 
-        # so if it exists here, it's different.
         stem = dest_path.stem
         suffix = dest_path.suffix
         counter = 1
@@ -133,147 +126,188 @@ class AstroImporter:
             'warnings': []
         }
 
-        # 1. Discover and Copy Lights
+        # 1. Lights
         light_observation_dates = set()
         light_files_copied = []
-
+        all_light_files = []
         for ct in types_to_search:
             ct_dir = self.source_dir / ct
             if not ct_dir.exists():
                 continue
-            
-            # <source-directory>/<CaptureType>/Light/<source-project-name>
             light_src_dir = ct_dir / 'Light' / self.source_project_name
             if light_src_dir.exists():
-                files = get_all_fit_files(light_src_dir)
-                report['lights']['discovered'] += len(files)
-                
-                for f in files:
+                all_light_files.extend(get_all_fit_files(light_src_dir))
+
+        if not all_light_files:
+            print("No Light files found.", flush=True)
+            # Existing behavior is to raise RuntimeError if no lights are found
+            raise RuntimeError("No matching light .fit files found in any selected capture types.")
+
+        # Group by filter
+        light_groups = {}
+        for f in all_light_files:
+            header = get_fits_header(f)
+            filter_name = get_filter_name(header) or 'Unknown'
+            light_groups.setdefault(filter_name, []).append((f, header))
+
+        for filter_name, files in light_groups.items():
+            reporter = ProgressReporter(f"Copying {len(files)} Lights - {filter_name}", len(files))
+            group_stats = {'copied': 0, 'already_present': 0, 'collisions': 0}
+            try:
+                for f, header in files:
                     dest_dir = self.project_path / 'lights'
-                    safe_copy(f, dest_dir, report['lights'])
+                    safe_copy(f, dest_dir, group_stats)
+                    reporter.increment()
                     
-                    # Analysis for dates/filters
-                    header = get_fits_header(f)
                     date = get_observation_date(header)
                     if date:
                         light_observation_dates.add(date)
                     else:
                         report['warnings'].append(f"Light frame {f.name} missing observation date.")
-                    
                     light_files_copied.append((f, header))
+                
+                stats_text = f"{group_stats['copied']} copied, {group_stats['already_present']} already present"
+                reporter.finish(stats_text)
+                
+                # Update main report
+                report['lights']['copied'] += group_stats['copied']
+                report['lights']['already_present'] += group_stats['already_present']
+                report['lights']['collisions'] += group_stats['collisions']
+                report['lights']['filters'][filter_name] = len(files)
+            except Exception as e:
+                reporter.fail(str(e))
+                raise
 
-        if not light_files_copied:
-            raise RuntimeError("No matching light .fit files found in any selected capture types.")
+        report['lights']['discovered'] = len(all_light_files)
 
-        # 2. Discover and Copy Flats
+        # 2. Flats
+        all_flat_candidates = []
         for ct in types_to_search:
             ct_dir = self.source_dir / ct
             if not ct_dir.exists():
                 continue
-            
-            # Preferred: <source-directory>/<CaptureType>/Flat/<project-name>
             flat_src_dir_named = ct_dir / 'Flat' / self.project_name
-            flat_src_dir_shared = ct_dir / 'Flat'
-            
             if flat_src_dir_named.exists():
-                files = get_all_fit_files(flat_src_dir_named)
-                report['flats']['discovered'] += len(files)
-                for f in files:
-                    dest_dir = self.project_path / 'flats'
-                    safe_copy(f, dest_dir, report['flats'])
-            elif flat_src_dir_shared.exists():
-                files = get_all_fit_files(flat_src_dir_shared)
-                # Fallback: Date matching
-                for f in files:
-                    report['flats']['discovered'] += 1
-                    header = get_fits_header(f)
-                    flat_date = get_observation_date(header)
-                    
-                    if not flat_date:
-                        report['warnings'].append(f"Shared flat {f.name} skipped: missing observation date.")
-                        continue
-                    
-                    # Match within +/- 1 day of any light
-                    match = False
-                    for l_date in light_observation_dates:
-                        if abs((flat_date - l_date).days) <= 1:
-                            match = True
-                            break
-                    
-                    if match:
-                        report['flats']['matched_by_date'] += 1
+                all_flat_candidates.extend([(f, 'named') for f in get_all_fit_files(flat_src_dir_named)])
+            flat_src_dir_shared = ct_dir / 'Flat'
+            if flat_src_dir_shared.exists():
+                all_flat_candidates.extend([(f, 'shared') for f in get_all_fit_files(flat_src_dir_shared)])
+
+        # Filter shared and group by filter
+        final_flats = []
+        for f, source_type in all_flat_candidates:
+            if source_type == 'named':
+                final_flats.append(f)
+            else:
+                header = get_fits_header(f)
+                flat_date = get_observation_date(header)
+                if not flat_date:
+                    report['warnings'].append(f"Shared flat {f.name} skipped: missing observation date.")
+                    continue
+                if any(abs((flat_date - l_date).days) <= 1 for l_date in light_observation_dates):
+                    final_flats.append(f)
+                    report['flats']['matched_by_date'] += 1
+
+        if not final_flats:
+            print("No matching Flat files found.", flush=True)
+        else:
+            flat_groups = {}
+            for f in final_flats:
+                header = get_fits_header(f)
+                filter_name = get_filter_name(header) or 'Unknown'
+                flat_groups.setdefault(filter_name, []).append(f)
+            
+            for filter_name, files in flat_groups.items():
+                reporter = ProgressReporter(f"Copying {len(files)} Flats - {filter_name}", len(files))
+                group_stats = {'copied': 0, 'already_present': 0, 'collisions': 0}
+                try:
+                    for f in files:
                         dest_dir = self.project_path / 'flats'
-                        safe_copy(f, dest_dir, report['flats'])
+                        safe_copy(f, dest_dir, group_stats)
+                        reporter.increment()
+                    
+                    stats_text = f"{group_stats['copied']} copied, {group_stats['already_present']} already present"
+                    reporter.finish(stats_text)
+                    
+                    report['flats']['copied'] += group_stats['copied']
+                    report['flats']['already_present'] += group_stats['already_present']
+                    report['flats']['collisions'] += group_stats['collisions']
+                    report['flats']['filters'][filter_name] = len(files)
+                except Exception as e:
+                    reporter.fail(str(e))
+                    raise
+
+        report['flats']['discovered'] = len(final_flats)
 
         # 3. Darks and Bias
-        for ct in types_to_search:
-            ct_dir = self.source_dir / ct
-            if not ct_dir.exists():
+        for frame_type in ['Dark', 'Bias']:
+            frame_key = 'darks' if frame_type == 'Dark' else 'bias'
+            all_files = []
+            dest_dir = self.calibration_root / frame_key
+            for ct in types_to_search:
+                ct_dir = self.source_dir / ct
+                if not ct_dir.exists():
+                    continue
+                f_dir = ct_dir / frame_type
+                if f_dir.exists():
+                    all_files.extend(get_all_fit_files(f_dir))
+            
+            if not all_files:
+                print(f"No {frame_type} files found.", flush=True)
                 continue
             
-            dark_dir = ct_dir / 'Dark'
-            if dark_dir.exists():
-                files = get_all_fit_files(dark_dir)
-                dest_dir = self.calibration_root / 'darks'
-                for f in files:
-                    safe_copy(f, dest_dir, report['darks'])
-            
-            bias_dir = ct_dir / 'Bias'
-            if bias_dir.exists():
-                files = get_all_fit_files(bias_dir)
-                dest_dir = self.calibration_root / 'bias'
-                for f in files:
-                    safe_copy(f, dest_dir, report['bias'])
-
-        # 4. Sort Lights and Flats by Filter
-        # Sort Lights
-        lights_root = self.project_path / 'lights'
-        for f in lights_root.glob('*.fit'):
-            header = get_fits_header(f)
-            filter_name = get_filter_name(header) or 'Unknown'
-            filter_dir = lights_root / filter_name
-            filter_dir.mkdir(exist_ok=True)
-            
-            # Use a temporary file to avoid issues with moving to the same dir
-            target = filter_dir / f.name
-            if target.exists() and calculate_hash_fixed(f) == calculate_hash_fixed(target):
-                # This shouldn't happen if sorted correctly, but for safety
-                f.unlink()
-            else:
-                # Collision check for sorting (should already be handled by safe_copy, 
-                # but here we are moving within the project tree)
-                if target.exists() and calculate_hash_fixed(f) != calculate_hash_fixed(target):
-                    stem = target.stem
-                    suffix = target.suffix
-                    c = 1
-                    while (filter_dir / f"{stem}_{c}{suffix}").exists():
-                        c += 1
-                    target = filter_dir / f"{stem}_{c}{suffix}"
+            reporter = ProgressReporter(f"Copying {len(all_files)} {frame_type}s", len(all_files))
+            group_stats = {'copied': 0, 'already_present': 0, 'collisions': 0}
+            try:
+                for f in all_files:
+                    safe_copy(f, dest_dir, group_stats)
+                    reporter.increment()
+                stats_text = f"{group_stats['copied']} copied, {group_stats['already_present']} already present"
+                reporter.finish(stats_text)
                 
-                f.rename(target)
-                report['lights']['filters'][filter_name] = report['lights']['filters'].get(filter_name, 0) + 1
+                report[frame_key]['copied'] = group_stats['copied']
+                report[frame_key]['already_present'] = group_stats['already_present']
+                report[frame_key]['collisions'] = group_stats['collisions']
+            except Exception as e:
+                reporter.fail(str(e))
+                raise
 
-        # Sort Flats
-        flats_root = self.project_path / 'flats'
-        for f in flats_root.glob('*.fit'):
-            header = get_fits_header(f)
-            filter_name = get_filter_name(header) or 'Unknown'
-            filter_dir = flats_root / filter_name
-            filter_dir.mkdir(exist_ok=True)
-            
-            target = filter_dir / f.name
-            if target.exists() and calculate_hash_fixed(f) == calculate_hash_fixed(target):
-                f.unlink()
-            else:
-                if target.exists() and calculate_hash_fixed(f) != calculate_hash_fixed(target):
-                    stem = target.stem
-                    suffix = target.suffix
-                    c = 1
-                    while (filter_dir / f"{stem}_{c}{suffix}").exists():
-                        c += 1
-                    target = filter_dir / f"{stem}_{c}{suffix}"
+        # 4. Sorting
+        for frame_type in ['lights', 'flats']:
+            root_dir = self.project_path / frame_type
+            files_to_sort = list(root_dir.glob('*.fit'))
+            if not files_to_sort:
+                continue
                 
-                f.rename(target)
-                report['flats']['filters'][filter_name] = report['flats']['filters'].get(filter_name, 0) + 1
+            reporter = ProgressReporter(f"Sorting {len(files_to_sort)} {frame_type.capitalize()} by filter", len(files_to_sort))
+            try:
+                for f in files_to_sort:
+                    header = get_fits_header(f)
+                    filter_name = get_filter_name(header) or 'Unknown'
+                    filter_dir = root_dir / filter_name
+                    filter_dir.mkdir(exist_ok=True)
+                    
+                    target = filter_dir / f.name
+                    if target.exists() and calculate_hash_fixed(f) == calculate_hash_fixed(target):
+                        f.unlink()
+                    else:
+                        if target.exists() and calculate_hash_fixed(f) != calculate_hash_fixed(target):
+                            stem, suffix = target.stem, target.suffix
+                            c = 1
+                            while (filter_dir / f"{stem}_{c}{suffix}").exists():
+                                c += 1
+                            target = filter_dir / f"{stem}_{c}{suffix}"
+                        f.rename(target)
+                    reporter.increment()
+                
+                dist = report[frame_type]['filters']
+                dist_text = ", ".join([f"{k}: {v}" for k, v in dist.items()])
+                reporter.finish(dist_text if dist_text else "")
+            except Exception as e:
+                reporter.fail(str(e))
+                raise
+
+        return report
+
 
         return report
