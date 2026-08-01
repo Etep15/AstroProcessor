@@ -242,35 +242,50 @@ class AstroImporter:
         # 3. Darks and Bias
         for frame_type in ['Dark', 'Bias']:
             frame_key = 'darks' if frame_type == 'Dark' else 'bias'
-            all_files = []
-            dest_dir = self.calibration_root / frame_key
             for ct in types_to_search:
                 ct_dir = self.source_dir / ct
                 if not ct_dir.exists():
                     continue
                 f_dir = ct_dir / frame_type
-                if f_dir.exists():
-                    all_files.extend(get_all_fit_files(f_dir))
-            
-            if not all_files:
-                print(f"No {frame_type} files found.", flush=True)
-                continue
-            
-            reporter = ProgressReporter(f"Copying {len(all_files)} {frame_type}s", len(all_files))
-            group_stats = {'copied': 0, 'already_present': 0, 'collisions': 0}
-            try:
-                for f in all_files:
-                    safe_copy(f, dest_dir, group_stats)
-                    reporter.increment()
-                stats_text = f"{group_stats['copied']} copied, {group_stats['already_present']} already present"
-                reporter.finish(stats_text)
+                if not f_dir.exists():
+                    continue
                 
-                report[frame_key]['copied'] = group_stats['copied']
-                report[frame_key]['already_present'] = group_stats['already_present']
-                report[frame_key]['collisions'] = group_stats['collisions']
-            except Exception as e:
-                reporter.fail(str(e))
-                raise
+                files = get_all_fit_files(f_dir)
+                if not files:
+                    continue
+                
+                # Determine date from first eligible image in this source folder
+                obs_date = None
+                for f in files:
+                    header = get_fits_header(f)
+                    obs_date = get_observation_date(header)
+                    if obs_date:
+                        break
+                
+                if obs_date:
+                    date_str = obs_date.strftime('%Y-%m-%d')
+                    dest_dir = self.calibration_root / frame_key / date_str
+                    print(f"Sorting {frame_type}s into {dest_dir}...", flush=True)
+                else:
+                    # Fallback to root calibration folder if no date found
+                    dest_dir = self.calibration_root / frame_key
+                    print(f"No date found for {frame_type}s in {f_dir}, using root {dest_dir}", flush=True)
+
+                reporter = ProgressReporter(f"Copying {len(files)} {frame_type}s", len(files))
+                group_stats = {'copied': 0, 'already_present': 0, 'collisions': 0}
+                try:
+                    for f in files:
+                        safe_copy(f, dest_dir, group_stats)
+                        reporter.increment()
+                    stats_text = f"{group_stats['copied']} copied, {group_stats['already_present']} already present"
+                    reporter.finish(stats_text)
+                    
+                    report[frame_key]['copied'] += group_stats['copied']
+                    report[frame_key]['already_present'] += group_stats['already_present']
+                    report[frame_key]['collisions'] += group_stats['collisions']
+                except Exception as e:
+                    reporter.fail(str(e))
+                    raise
 
         # 4. Sorting
         for frame_type in ['lights', 'flats']:
@@ -307,7 +322,44 @@ class AstroImporter:
                 reporter.fail(str(e))
                 raise
 
-        return report
-
+        # 5. Calibration Sorting (Loose files)
+        for frame_type in ['darks', 'bias']:
+            calib_dir = self.calibration_root / frame_type
+            if not calib_dir.exists():
+                continue
+                
+            loose_files = [f for f in calib_dir.glob('*.fit')]
+            if not loose_files:
+                continue
+            
+            # Determine date from first eligible loose image
+            obs_date = None
+            for f in loose_files:
+                header = get_fits_header(f)
+                obs_date = get_observation_date(header)
+                if obs_date:
+                    break
+            
+            if obs_date:
+                date_str = obs_date.strftime('%Y-%m-%d')
+                target_dir = calib_dir / date_str
+                print(f"Sorting existing loose {frame_type} into {target_dir}...", flush=True)
+                target_dir.mkdir(exist_ok=True)
+                
+                for f in loose_files:
+                    target_path = target_dir / f.name
+                    if target_path.exists():
+                        if calculate_hash_fixed(f) == calculate_hash_fixed(target_path):
+                            f.unlink()
+                        else:
+                            stem, suffix = target_path.stem, target_path.suffix
+                            c = 1
+                            while (target_dir / f"{stem}_{c}{suffix}").exists():
+                                c += 1
+                            f.rename(target_dir / f"{stem}_{c}{suffix}")
+                    else:
+                        f.rename(target_path)
+            else:
+                print(f"No date found in loose {frame_type} files; skipping sort.", flush=True)
 
         return report

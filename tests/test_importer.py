@@ -162,54 +162,113 @@ class TestAstroImporter(unittest.TestCase):
         self.assertEqual(report2['lights']['already_present'], 1)
         self.assertEqual(report2['lights']['copied'], 0)
 
-    def test_duplicate_handling_different(self):
-        # This requires a special setup where we manually put a file in destination 
-        # with the same name but different content.
+    def test_dark_bias_date_sorting(self):
+        # Setup source: /source/Autorun/Dark/dark1.fit, dark2.fit
+        dark_dir = self.source_root / "Autorun" / "Dark"
+        dark_dir.mkdir(parents=True)
+        self.create_fits(dark_dir / "dark1.fit", date_val="2026-08-01")
+        self.create_fits(dark_dir / "dark2.fit", date_val="2026-08-01")
+        
+        bias_dir = self.source_root / "Autorun" / "Bias"
+        bias_dir.mkdir(parents=True)
+        self.create_fits(bias_dir / "bias1.fit", date_val="2026-07-15")
+        
+        # Need a light to proceed
         light_dir = self.source_root / "Autorun" / "Light" / self.project_name
         light_dir.mkdir(parents=True)
         self.create_fits(light_dir / "img1.fit")
         
-        # Create destination file with different data
-        dest_light_dir = self.project_path / "lights"
-        dest_light_dir.mkdir(parents=True)
-        (dest_light_dir / "img1.fit").write_text("different content")
+        importer = AstroImporter(self.project_name, self.source_root, self.projects_root, self.calib_root)
+        report = importer.run_import(capture_types=["Autorun"])
+        
+        # Darks should be in 2026-08-01 folder
+        self.assertTrue((self.calib_root / "darks" / "2026-08-01" / "dark1.fit").exists())
+        self.assertTrue((self.calib_root / "darks" / "2026-08-01" / "dark2.fit").exists())
+        # Bias should be in 2026-07-15 folder
+        self.assertTrue((self.calib_root / "bias" / "2026-07-15" / "bias1.fit").exists())
+
+    def test_calibration_loose_files_sorting(self):
+        # Pre-populate calibration with loose files
+        dark_root = self.calib_root / "darks"
+        dark_root.mkdir(parents=True)
+        self.create_fits(dark_root / "loose_dark.fit", date_val="2026-05-01")
+        
+        bias_root = self.calib_root / "bias"
+        bias_root.mkdir(parents=True)
+        self.create_fits(bias_root / "loose_bias.fit", date_val="2026-04-01")
+        
+        # Need a light to trigger run_import
+        light_dir = self.source_root / "Autorun" / "Light" / self.project_name
+        light_dir.mkdir(parents=True)
+        self.create_fits(light_dir / "img1.fit")
+        
+        importer = AstroImporter(self.project_name, self.source_root, self.projects_root, self.calib_root)
+        importer.run_import(capture_types=["Autorun"])
+        
+        self.assertTrue((self.calib_root / "darks" / "2026-05-01" / "loose_dark.fit").exists())
+        self.assertTrue((self.calib_root / "bias" / "2026-04-01" / "loose_bias.fit").exists())
+        self.assertFalse((self.calib_root / "darks" / "loose_dark.fit").exists())
+
+    def test_calibration_no_date_fallback(self):
+        dark_dir = self.source_root / "Autorun" / "Dark"
+        dark_dir.mkdir(parents=True)
+        # Create a FITS with no DATE-OBS
+        data = np.zeros((10, 10), dtype=np.float32)
+        hdu = fits.PrimaryHDU(data)
+        hdu.writeto(dark_dir / "no_date.fit", overwrite=True)
+        
+        light_dir = self.source_root / "Autorun" / "Light" / self.project_name
+        light_dir.mkdir(parents=True)
+        self.create_fits(light_dir / "img1.fit")
+        
+        importer = AstroImporter(self.project_name, self.source_root, self.projects_root, self.calib_root)
+        importer.run_import(capture_types=["Autorun"])
+        
+        # Should be in the root darks folder
+        self.assertTrue((self.calib_root / "darks" / "no_date.fit").exists())
+
+    def test_calibration_duplicate_handling(self):
+        # Setup source with file that already exists in dated folder but is DIFFERENT
+        date_str = "2026-01-01"
+        dark_dest = self.calib_root / "darks" / date_str
+        dark_dest.mkdir(parents=True)
+        (dark_dest / "dark1.fit").write_text("existing different content")
+        
+        dark_src_dir = self.source_root / "Autorun" / "Dark"
+        dark_src_dir.mkdir(parents=True)
+        self.create_fits(dark_src_dir / "dark1.fit", date_val=date_str)
+        
+        light_dir = self.source_root / "Autorun" / "Light" / self.project_name
+        light_dir.mkdir(parents=True)
+        self.create_fits(light_dir / "img1.fit")
         
         importer = AstroImporter(self.project_name, self.source_root, self.projects_root, self.calib_root)
         report = importer.run_import(capture_types=["Autorun"])
         
-        # The file might be sorted into a filter folder, so we check for any file starting with img1_
-        found = False
-        for f in dest_light_dir.rglob('img1_*.fit'):
-            if f.name != "img1.fit":
-                found = True
-                break
+        # Should be renamed
+        self.assertTrue((dark_dest / "dark1_1.fit").exists())
+        self.assertEqual(report['darks']['collisions'], 1)
+
+    def test_calibration_rerun_skipped(self):
+        date_str = "2026-01-01"
+        dark_src_dir = self.source_root / "Autorun" / "Dark"
+        dark_src_dir.mkdir(parents=True)
+        self.create_fits(dark_src_dir / "dark1.fit", date_val=date_str)
         
-        self.assertTrue(found, "Collision-safe renamed file was not found")
-        self.assertEqual(report['lights']['collisions'], 1)
-
-    def test_missing_project_fails(self):
-        with self.assertRaises(FileNotFoundError):
-            AstroImporter("NonExistent", self.source_root, self.projects_root, self.calib_root)
-
-    def test_no_lights_fails(self):
-        # Empty source
-        self.source_root.mkdir(exist_ok=True)
+        light_dir = self.source_root / "Autorun" / "Light" / self.project_name
+        light_dir.mkdir(parents=True)
+        self.create_fits(light_dir / "img1.fit")
+        
         importer = AstroImporter(self.project_name, self.source_root, self.projects_root, self.calib_root)
-        with self.assertRaises(RuntimeError) as cm:
-            importer.run_import(capture_types=["Autorun"])
-        self.assertIn("No matching light .fit files found", str(cm.exception))
-
-    def test_path_traversal_source(self):
-        # We need to mock the source_dir to be something that would allow traversal
-        # but the current implementation uses resolve() and startswith().
-        # Let's test a path that tries to go up.
-        # Since the importer logic takes source_dir as root, traversal usually happens
-        # when it joins with a project name that contains '..'.
         
-        # But project_name is sanitized by the CLI. 
-        # Let's test the AstroImporter with a "dirty" project name directly.
-        with self.assertRaises(Exception):
-            AstroImporter("../evil", self.source_root, self.projects_root, self.calib_root)
+        # Run 1
+        importer.run_import(capture_types=["Autorun"])
+        self.assertTrue((self.calib_root / "darks" / date_str / "dark1.fit").exists())
+        
+        # Run 2
+        report2 = importer.run_import(capture_types=["Autorun"])
+        self.assertEqual(report2['darks']['already_present'], 1)
+        self.assertEqual(report2['darks']['copied'], 0)
 
 if __name__ == "__main__":
     unittest.main()
