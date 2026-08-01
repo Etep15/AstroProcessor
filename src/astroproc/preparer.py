@@ -47,31 +47,33 @@ class ProjectPreparer:
         return best_folder
 
     def prepare(self):
-        # 1. Copy lights and flats to source/
+        # 1. Move lights and flats to source/
         source_dir = self.project_path / "source"
-        source_lights = source_dir / "lights"
-        source_flats = source_dir / "flats"
+        source_dir.mkdir(exist_ok=True)
 
-        # Existing directories to copy from
+        # Existing directories to move
         orig_lights = self.project_path / "lights"
         orig_flats = self.project_path / "flats"
 
-        if not orig_lights.exists():
+        # Check if they already moved (safe to rerun)
+        if not orig_lights.exists() and not (source_dir / "lights").exists():
             raise RuntimeError(f"Missing lights directory in project: {orig_lights}")
-        if not orig_flats.exists():
+        if not orig_flats.exists() and not (source_dir / "flats").exists():
             raise RuntimeError(f"Missing flats directory in project: {orig_flats}")
 
-        # Copying logic: preserve original, make safe to rerun.
-        # We'll copy the directories if they don't exist, or update them.
-        # To keep it simple and follow "do not overwrite real files", 
-        # we'll use a helper that copies if missing or different.
-        self._ensure_dir_copy(orig_lights, source_lights)
-        self._ensure_dir_copy(orig_flats, source_flats)
+        # Perform the move
+        if orig_lights.exists():
+            self._safe_move(orig_lights, source_dir / "lights")
+        if orig_flats.exists():
+            self._safe_move(orig_flats, source_dir / "flats")
 
-        # 2. Detect filters from lights
-        filters = [f.name for f in orig_lights.iterdir() if f.is_dir()]
+        # 2. Detect filters from source/lights
+        source_lights = source_dir / "lights"
+        source_flats = source_dir / "flats"
+        
+        filters = [f.name for f in source_lights.iterdir() if f.is_dir()]
         if not filters:
-            raise RuntimeError("No filters detected in lights directory.")
+            raise RuntimeError("No filters detected in source/lights directory.")
 
         processing_dir = self.project_path / "processing"
         processing_dir.mkdir(exist_ok=True)
@@ -79,7 +81,7 @@ class ProjectPreparer:
         results = []
 
         for filt in filters:
-            filt_path = orig_lights / filt
+            filt_path = source_lights / filt
             
             # 3. Read DATE-OBS from first valid .fit light
             light_files = sorted(filt_path.glob("*.fit"))
@@ -130,38 +132,60 @@ class ProjectPreparer:
 
         return results
 
-    def _ensure_dir_copy(self, src, dst):
-        """Copies src directory to dst. If dst exists, ensures it is updated."""
+    def _safe_move(self, src, dst):
+        """Moves src directory to dst. If dst exists, merges contents."""
         if dst.exists():
-            # Check if it's a directory. If not, it's a collision.
             if not dst.is_dir():
                 raise RuntimeError(f"Collision: {dst} exists and is not a directory.")
-            # We will just ensure the contents are there.
-            # For the sake of "safe to rerun" and "do not overwrite real files",
-            # and given the requirement "Copy the project's existing lights and flats",
-            # we'll just sync them.
+            
+            # Merge src into dst
             for item in src.iterdir():
                 s_item = item
                 d_item = dst / item.name
                 if s_item.is_dir():
-                    self._ensure_dir_copy(s_item, d_item)
+                    self._safe_move(s_item, d_item)
                 else:
+                    # If file exists, we only overwrite if it's different or just let it be.
+                    # The requirement is "do not overwrite real files". 
+                    # In a move/merge context, we'll only move if it doesn't exist.
                     if not d_item.exists():
-                        shutil.copy2(s_item, d_item)
+                        shutil.move(str(s_item), str(d_item))
+            
+            # Remove the now empty (or partially empty) src
+            if not any(src.iterdir()):
+                src.rmdir()
         else:
-            shutil.copytree(src, dst)
+            shutil.move(str(src), str(dst))
+
 
     def _safe_symlink(self, link_path, target):
-        """Creates a symlink. Replaces if it's a symlink to wrong target."""
+        """Creates a relative symlink. Replaces if it's a symlink to wrong target."""
+        # Calculate relative path from link's parent to target
+        # target and link_path are Path objects
+        link_parent = link_path.parent.resolve()
+        target_abs = Path(target).resolve()
+        
+        try:
+            relative_target = os.path.relpath(target_abs, link_parent)
+        except ValueError:
+            # Fallback to absolute if relpath fails (e.g. different drives on Windows)
+            relative_target = str(target_abs)
+
         if link_path.exists() or link_path.is_symlink():
             if link_path.is_symlink():
-                current_target = os.readlink(link_path)
-                # We compare absolute paths to be sure
-                if os.path.abspath(current_target) != os.path.abspath(target):
+                # Use realpath to resolve existing link and compare with target_abs
+                current_resolved = Path(os.readlink(link_path))
+                # If the existing link is relative, resolve it relative to the link's parent
+                if not current_resolved.is_absolute():
+                    current_resolved = (link_parent / current_resolved).resolve()
+                else:
+                    current_resolved = current_resolved.resolve()
+                
+                if current_resolved != target_abs:
                     link_path.unlink()
-                    link_path.symlink_to(target)
+                    link_path.symlink_to(relative_target)
             elif link_path.is_file() or link_path.is_dir():
                 # Requirement: "Do not overwrite real files or directories."
                 raise RuntimeError(f"Cannot create symlink {link_path}: a real file or directory already exists.")
         else:
-            link_path.symlink_to(target)
+            link_path.symlink_to(relative_target)
