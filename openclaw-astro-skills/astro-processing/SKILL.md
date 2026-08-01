@@ -2,8 +2,42 @@
 name: astro-processing
 description: "Orchestrate a complete bounded SHO astrophotography workflow using AstroProcessor and Siril CLI."
 user-invocable: true
-metadata: {"openclaw":{"requires":{"bins":["astroproc","siril-cli"]},"os":["linux"]}}
+metadata: {"openclaw":{"os":["linux"]}}
 ---
+
+# Siril CLI command
+
+The approved Siril CLI command prefix is:
+
+    env APPDIR="/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root" "/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root/AppRun" siril-cli
+
+Use this exact command prefix whenever this skill or the supporting
+`siril-cli-runner` skill invokes Siril.
+
+Before processing:
+
+1. Confirm that `/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root/AppRun` exists.
+2. Confirm that it is executable.
+3. Confirm that the command reports Siril 1.4.4.
+4. Do not invoke `/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root/usr/bin/siril-cli` directly.
+5. Do not create a global `/usr/local/bin/siril-cli` command.
+6. Do not copy, move, replace, or modify the Siril runtime during processing.
+
+# AstroProcessor executable
+
+The approved AstroProcessor executable is:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc
+
+Use this exact absolute path for every AstroProcessor command.
+
+Before using it:
+
+1. Confirm that the file exists.
+2. Confirm that it is executable.
+3. Run its `--help` option to verify the installed interface.
+4. Do not search for or create a global `/usr/local/bin/astroproc` command.
+5. Do not copy, move, replace, or modify the executable during processing.
 
 # Astro Processing
 
@@ -159,10 +193,6 @@ The known copy command is conceptually:
     astroproc -c "<project-name>" \
       -sd "<source-root>" \
       -t "<source-type>"
-
-The known prepare command is conceptually:
-
-    astroproc -p "<project-name>"
 
 Before using them, confirm their exact syntax with `astroproc --help`.
 

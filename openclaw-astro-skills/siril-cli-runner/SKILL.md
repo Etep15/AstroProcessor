@@ -2,8 +2,40 @@
 name: siril-cli-runner
 description: "Safely run and verify Siril 1.4.4 CLI scripts for astronomical image processing."
 user-invocable: true
-metadata: {"openclaw":{"requires":{"bins":["siril-cli"]},"os":["linux"]}}
+metadata: {"openclaw":{"os":["linux"]}}
 ---
+
+# Siril CLI command
+
+The approved Siril CLI command prefix is:
+
+    env APPDIR="/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root" "/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root/AppRun" siril-cli
+
+Use this exact command prefix for every Siril CLI invocation.
+
+For example, to display the version, run:
+
+    env APPDIR="/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root" "/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root/AppRun" siril-cli --version
+
+For example, to run a Siril script, run:
+
+    env APPDIR="/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root" "/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root/AppRun" siril-cli \
+      --directory "<working-directory>" \
+      --script "<script-path>"
+
+This command-prefix instruction overrides examples elsewhere in this skill
+that show only `siril-cli`. Replace `siril-cli` in those examples with the
+approved command prefix above.
+
+Before using it:
+
+1. Confirm that `/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root/AppRun` exists.
+2. Confirm that it is executable.
+3. Confirm that the command reports Siril 1.4.4.
+4. Run the command's `--help` option when syntax must be verified.
+5. Do not invoke `/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root/usr/bin/siril-cli` directly.
+6. Do not create a global `/usr/local/bin/siril-cli` command.
+7. Do not copy, move, replace, or modify the Siril runtime during processing.
 
 # Siril CLI Runner
 
