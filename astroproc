@@ -9,7 +9,9 @@ from pathlib import Path
 try:
     from src.astroproc.fits_utils import get_fits_header, get_observation_date, get_filter_name
     from src.astroproc.importer import AstroImporter
+    from src.astroproc.preparer import ProjectPreparer
 except ImportError:
+
     # Fallback for when running as a script directly without PYTHONPATH
     import sys
     sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
@@ -142,6 +144,9 @@ def main():
     )
 
     parser.add_argument("-h", "--help", action="help", help="Show this help message and exit")
+    parser.add_argument("-p", "--prepare", metavar="PROJECT", help="Prepare a project for processing")
+
+
     parser.add_argument("-np", "--new-project", metavar="NAME", help="Create a new astrophotography project")
 
     # Step 3 Arguments
@@ -165,7 +170,35 @@ def main():
     if not projects_root:
         projects_root = astro_root / "Projects"
 
-    if args.new_project:
+    # Handle prepare project
+    if args.prepare:
+        project_name = args.prepare
+        # Resolve project path using sanitization
+        sanitized_project = sanitize_name(project_name)
+        if not sanitized_project:
+            print("Error: Invalid project name.")
+            sys.exit(1)
+
+        project_path = Path(projects_root) / sanitized_project
+        if not project_path.exists():
+            print(f"Error: Project directory not found at {project_path}")
+            sys.exit(1)
+
+        try:
+            preparer = ProjectPreparer(sanitized_project, projects_root, astro_root / 'calibration')
+            results = preparer.prepare()
+            
+            print(f"\nProject '{project_name}' prepared successfully.")
+            print("-" * 40)
+            for res in results:
+                print(f"Filter {res['filter']}: Obs Date {res['obs_date']} -> Darks {res['darks_date']}, Bias {res['biases_date']}")
+            sys.exit(0)
+        except Exception as e:
+            print(f"Fatal Error during preparation: {e}")
+            sys.exit(1)
+
+    elif args.new_project:
+
         create_project(args.new_project, projects_root)
     elif args.copy:
         if not args.source_directory:
