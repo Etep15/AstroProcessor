@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/.venv/bin/python
 import argparse
 import os
 import re
