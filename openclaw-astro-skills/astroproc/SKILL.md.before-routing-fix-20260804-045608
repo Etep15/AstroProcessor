@@ -1,83 +1,12 @@
 ---
 name: astroproc
-description: "Create, copy, or prepare AstroProcessor projects only. A prepare-only request runs astroproc -p and stops."
+description: "Use the AstroProcessor astroproc command to create projects, copy ASIAIR files, and prepare Siril processing folders."
 user-invocable: true
 metadata: {"openclaw":{"os":["linux"]}}
 ---
 
-<!-- ASTROPROC-PREPARE-COPY-OVERRIDE-START -->
-
-# Prepare copy-mode override
-
-These rules override later references in this skill to prepared directory
-symbolic links.
-
-`astroproc -p` and `astroproc --prepare` now create real directories:
-
-    processing/<filter>/lights
-    processing/<filter>/flats
-    processing/<filter>/darks
-    processing/<filter>/biases
-
-AstroProcessor copies direct FITS files into those directories. It does not
-create directory symbolic links.
-
-On a legacy project, prepare may remove only the four AstroProcessor-created
-directory symlinks themselves. It never removes or modifies their targets.
-Existing `lights/rejects` evidence is migrated into the new real lights
-directory.
-
-Prepare is safe to rerun:
-
-- identical files are retained
-- different-content filename collisions block the run
-- indexed rejected checksums are not recopied into direct lights
-- source, calibration, and rejected FITS files are never deleted
-- extra existing destination files are preserved rather than deleted
-
-Verification must confirm that all four category paths are real directories,
-not symbolic links, and contain direct FITS files.
-
-<!-- ASTROPROC-PREPARE-COPY-OVERRIDE-END -->
-
 # AstroProcessor command skill
 
-
-<!-- INVOCATION-BOUNDARY-START -->
-
-# Strict invocation boundary
-
-These rules override any later general workflow language in this skill.
-
-Use this skill for AstroProcessor operations only:
-
-- create a project
-- copy ASIAIR files
-- prepare a project with `astroproc -p`
-
-When the original user request asks only to prepare a project:
-
-1. run `astroproc -p "<exact project name>"`
-2. report the exact command, exit status, stdout, and stderr
-3. report the filters and calibration selections printed by AstroProcessor
-4. stop
-
-A successful `astroproc -p` command completes a prepare-only request.
-
-Do not automatically invoke:
-
-- `siril-mono-preprocessing`
-- `astro-light-quality-control`
-- `siril-cli-runner`
-- Siril
-- any calibration, registration, or stacking command
-
-Only continue to another skill when the original user message explicitly
-requests that additional stage.
-
-Permission to prepare a project is not permission to preprocess it.
-
-<!-- INVOCATION-BOUNDARY-END -->
 Use this skill when the user asks to create an AstroProcessor project, copy an
 ASIAIR project into it, prepare it for Siril, or perform those operations
 together.
