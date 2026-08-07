@@ -1,135 +1,103 @@
 ---
 name: siril-starnet-removal
-description: "Create the canonical StarNet starless image, starmask and unscreen stars product for a validated linear SHO project."
+description: "Generate, visually review, and publish canonical StarNet products from the accepted background-neutralized SHO image."
 user-invocable: true
 metadata: {"openclaw":{"os":["linux"]}}
 ---
 
 # Canonical Siril StarNet Workflow
 
-Use only:
+Installed workflow version: **1.5.2**.
 
-    <this skill>/scripts/starnet_workflow.py
+This update retains the 1.5.1 source contract, native-mask workflow, candidate
+set, review requirements, preservation policy, and GHS downstream gate.
 
-with:
+## Corrected path handling
 
-    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/.venv/bin/python
+Siril reported:
 
-Installed workflow version: 1.4.1.
+```text
+Filename too long (max 255 bytes)
+```
 
-## Canonical project directory
+when the 1.5.1 synthetic self-test attempted to save its native starmask and
+unscreen product beneath a path approximately 298 bytes long.
 
-Successful project outputs belong only in:
+Version 1.5.2:
 
-    <project>/processing/starnet/
+1. Uses a compact synthetic workspace:
+   ```text
+   .skill-self-tests/sn/<id>/w/Projects/T/
+   ```
+2. Calculates the byte length of every expected generated path before StarNet.
+3. Blocks before execution when any expected path exceeds 255 bytes.
+4. Records the evidence under:
+   ```text
+   path_budget
+   ```
 
-with these names:
+The conservative path check covers:
 
-    SHO-starless-linear.fit
-    SHO-starmask.fit
-    SHO-stars-unscreen.fit
-    starnet-manifest.json
+```text
+SHO_starless_stretched.fit
+starnetmask_SHO_input_stretched.fit
+starnetdescreen_SHO_input_stretched.fit
+```
 
-Do not create new project outputs under `processing/starnet-native`.
-That older directory is historical evidence and must remain untouched.
+The M16 operational path is comfortably inside the limit.
 
-## Products
+## Pipeline
 
-- `SHO-starless-linear.fit`
-  - linear image used by subsequent starless processing
-- `SHO-starmask.fit`
-  - StarNet `-m` starmask
-  - sparse, nonnegative and 16-bit-derived
-  - not `original - starless`
-- `SHO-stars-unscreen.fit`
-  - StarNet `-n` unscreen product
-  - used later by a screen-aware recomposition workflow
+```text
+siril-background-neutralization
+→ siril-starnet-removal
+→ siril-ghs-stretch-pass1
+```
 
-Never require:
+## Input
 
-    starless + starmask = original
+```text
+processing/background-neutralization/SHO-linear-neutralized.fit
+processing/background-neutralization/background-neutralization-manifest.json
+```
 
-## Fresh-run requirement
+Required upstream helper: `1.1.0`.
 
-The command:
+## Candidate set
 
-    run --project "<project>"
+```text
+candidate-00: target 0.15, x1
+candidate-01: target 0.10, x1
+candidate-02: target 0.06, x1
+candidate-03: target 0.10, x2
+```
 
-must refuse to reuse or silently accept an existing `processing/starnet`
-directory.
+## Completion and log evidence
 
-To execute StarNet again, use:
+The broad `starnet: could not` text remains fatal unless Siril exits zero, all
+required completion messages exist, and all expected products exist.
 
-    run --project "<project>" --fresh-run
+Version 1.5.2 therefore does not suppress filename-too-long or other genuine
+save failures.
 
-A fresh run:
+## Visual review
 
-1. leaves the current canonical directory in place while candidates run
-2. validates the selected new candidate completely
-3. moves the old canonical directory intact to:
-   `<new run>/previous-processing-starnet`
-4. atomically publishes the new directory as `processing/starnet`
-5. restores the old directory if publication fails
+CodeWarrior must inspect the source and every candidate's starless, linked
+starmask, unlinked starmask, and unscreen previews. Publication requires the
+structured review record.
 
-No directory is deleted.
+## Preservation
 
-## Candidate policy
+Successful `--fresh-run` publication preserves the old canonical StarNet
+directory beneath the new run. `processing/starnet-native` remains untouched.
+Nothing is deleted.
 
-- baseline: temporary target background 0.15, x1
-- retry 1: target 0.10, x1
-- retry 2: target 0.06, x1
-- retry 3: target 0.10, x2
+## Downstream
 
-There are no more than three retries.
+A ready result reports:
 
-The StarNet command always requests:
-
-    --masks starnet-mask,starnet-unscreen
-
-Do not use a subtraction-derived stars layer or compact-cleanup workflow.
-
-## Quality gates
-
-A publishable starmask must be:
-
-- finite RGB
-- nonnegative
-- at least 99.5% aligned to 16-bit quantization
-- at least 40% exactly zero
-- nonempty
-- below diffuse-structure correlation limits
-- below relative-nebula-leakage limits
-
-The starless image must also pass remaining-star detection.
-
-## Correct path reporting
-
-The stable manifest and status output must report actual paths under:
-
-    <project>/processing/starnet/
-
-They must never report `publish-staging` as the final file location.
-
-## Commands
-
-    ASTRO_PY="/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/.venv/bin/python"
-    STARNET="/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-starnet-removal/scripts/starnet_workflow.py"
-
-    "$ASTRO_PY" "$STARNET" --version
-
-    "$ASTRO_PY" "$STARNET" run       --project "M16 July 2026"       --fresh-run       --max-retries 3       --timeout 7200
-
-    "$ASTRO_PY" "$STARNET" status       --project "M16 July 2026"
-
-## Prohibited actions
-
-Do not:
-
-- reuse an old result as though a new run occurred
-- manually delete or replace `processing/starnet`
-- modify `processing/starnet-native`
-- alter the source `processing/sho/SHO-linear.fit`
-- exceed three retries
-- use `--masks subtract`
-- linearly add the starmask to the starless image
-- continue to later processing when status is not `ready`
+```text
+next_stage: siril-ghs-stretch-pass1
+ghs_pass1_permitted: true
+starless_background_processing_permitted: false
+```

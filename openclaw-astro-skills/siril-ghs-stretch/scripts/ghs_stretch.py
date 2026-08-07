@@ -20,7 +20,7 @@ import numpy as np
 from astropy.io import fits
 
 
-VERSION = "1.1.0"
+VERSION = "1.3.1"
 WORKSPACE = Path(
     "/home/peter/.openclaw/workspace/agents/codewarrior"
 )
@@ -30,7 +30,10 @@ SIRIL_APP = Path(
 )
 SIRIL_APPDIR = SIRIL_APP.parent
 REQUIRED_SIRIL_VERSION = "1.4.4"
-REQUIRED_DENOISE_VERSION = "1.0.1"
+REQUIRED_STARNET_VERSION = "1.5.2"
+UPSTREAM_STAGE = "siril-starnet-removal"
+CURRENT_STAGE = "siril-ghs-stretch-pass1"
+NEXT_STAGE = "siril-ghs-stretch-pass2"
 
 # Exact first-pass M16 settings from the successful manual Siril 1.4.4 run.
 GHS_D = 4.4
@@ -43,17 +46,19 @@ GHS_COLOUR_MODEL = "even"
 
 MAX_CANDIDATES_LIMIT = 3
 PARAMETER_BOUNDS = {
-    "D": {"minimum": 3.8, "maximum": 5.0},
-    "B": {"minimum": 10.0, "maximum": 20.0},
-    "SP": {"minimum": 0.0025, "maximum": 0.0060},
+    "D": {"minimum": 1.5, "maximum": 5.0},
+    "B": {"minimum": 2.0, "maximum": 15.0},
+    "SP": {"minimum": 0.0020, "maximum": 0.0120},
     "LP": {"minimum": 0.0, "maximum": 0.0},
-    "HP": {"minimum": 0.82, "maximum": 0.92},
+    "HP": {"minimum": 0.82, "maximum": 0.97},
 }
 SELECTION_TARGETS = {
     "output_luma_median": 0.085,
-    "output_luma_p90": 0.35,
-    "output_luma_p99": 0.60,
+    "balanced_median_minimum": 0.055,
+    "balanced_median_maximum": 0.125,
+    "maximum_output_luma_p99": 0.75,
     "minimum_preferred_luma_correlation": 0.97,
+    "source_relative_percentile_shape": True,
 }
 
 FATAL_LOG_MARKERS = (
@@ -173,6 +178,7 @@ def inspect_fits(path: Path) -> FitsEvidence:
         )
 
 
+
 def project_paths(workspace: Path, project_name: str) -> dict[str, Path]:
     project = workspace / "Projects" / project_name
     processing = project / "processing"
@@ -180,28 +186,17 @@ def project_paths(workspace: Path, project_name: str) -> dict[str, Path]:
     return {
         "project": project,
         "processing": processing,
-        "source": (
-            processing
-            / "linear-denoise"
-            / "SHO-starless-linear-denoised.fit"
-        ),
-        "source_manifest": (
-            processing
-            / "linear-denoise"
-            / "linear-denoise-manifest.json"
-        ),
+        "source": processing / "starnet" / "SHO-starless-linear.fit",
+        "source_manifest": processing / "starnet" / "starnet-manifest.json",
+        "source_review": processing / "starnet" / "visual-review-record.json",
         "runs": project / ".siril-ghs-stretch",
         "stable": stable,
         "stable_output": stable / "SHO-starless-ghs-pass1.fit",
-        "stable_before_preview": (
-            stable
-            / "SHO-starless-linear-denoised-before-linked.png"
-        ),
-        "stable_after_preview": (
-            stable / "SHO-starless-ghs-pass1-linear.png"
-        ),
+        "stable_before_preview": stable / "SHO-starless-linear-before-linked.png",
+        "stable_after_preview": stable / "SHO-starless-ghs-pass1-linear.png",
         "stable_manifest": stable / "ghs-pass1-manifest.json",
     }
+
 
 
 def siril_version() -> dict[str, Any]:
@@ -256,7 +251,7 @@ def stretch_script_text(parameters: dict[str, float]) -> str:
     return "\n".join(
         (
             f"requires {REQUIRED_SIRIL_VERSION}",
-            'load "SHO-starless-linear-denoised.fit"',
+            'load "SHO-starless-linear.fit"',
             ght_arguments("ght", parameters),
             'save "SHO-starless-ghs-pass1.fit"',
             ght_arguments("invght", parameters),
@@ -270,11 +265,11 @@ def preview_script_text() -> str:
     return "\n".join(
         (
             f"requires {REQUIRED_SIRIL_VERSION}",
-            'load "SHO-starless-linear-denoised.fit"',
+            'load "SHO-starless-linear.fit"',
             "autostretch -linked",
             (
                 'savepng "../previews/'
-                'SHO-starless-linear-denoised-before-linked"'
+                'SHO-starless-linear-before-linked"'
             ),
             "close",
             'load "SHO-starless-ghs-pass1.fit"',
@@ -645,7 +640,7 @@ def production_quality_assessment(
         },
         "thresholds": thresholds,
         "interpretation": (
-            "The first GHS pass lifted the denoised starless image without "
+            "The first GHS pass lifted the reviewed StarNet starless image without "
             "channel clipping, and inverse GHT recovered the linear source "
             "within the accepted numerical tolerance."
             if satisfactory
@@ -656,49 +651,55 @@ def production_quality_assessment(
     }
 
 
-def validate_source(
-    paths: dict[str, Path],
-) -> tuple[dict[str, Any], FitsEvidence]:
+
+def validate_source(paths: dict[str, Path]) -> tuple[dict[str, Any], FitsEvidence]:
     if not paths["project"].is_dir():
-        raise GhsStretchError(
-            f"Project does not exist: {paths['project']}"
-        )
+        raise GhsStretchError(f"Project does not exist: {paths['project']}")
     if not paths["source_manifest"].is_file():
-        raise GhsStretchError(
-            f"Linear-denoise manifest is missing: "
-            f"{paths['source_manifest']}"
-        )
-
-    manifest = json.loads(
-        paths["source_manifest"].read_text(encoding="utf-8")
-    )
+        raise GhsStretchError(f"StarNet manifest is missing: {paths['source_manifest']}")
+    manifest = json.loads(paths["source_manifest"].read_text(encoding="utf-8"))
+    if manifest.get("project") != paths["project"].name:
+        raise GhsStretchError("StarNet manifest project does not match.")
+    if Path(str(manifest.get("project_path", ""))).resolve() != paths["project"].resolve():
+        raise GhsStretchError("StarNet manifest project path does not match.")
     if manifest.get("status") != "ready":
+        raise GhsStretchError("StarNet manifest status is not ready.")
+    if manifest.get("helper_version") != REQUIRED_STARNET_VERSION:
         raise GhsStretchError(
-            "Linear-denoise manifest status is not ready."
+            f"Expected StarNet helper {REQUIRED_STARNET_VERSION}; "
+            f"manifest reports {manifest.get('helper_version')!r}."
         )
-    if not manifest.get("downstream_linear_processing_permitted"):
-        raise GhsStretchError(
-            "Linear-denoise manifest does not permit downstream processing."
-        )
-    if manifest.get("helper_version") != REQUIRED_DENOISE_VERSION:
-        raise GhsStretchError(
-            f"Expected linear-denoise helper {REQUIRED_DENOISE_VERSION}; "
-            f"manifest reports {manifest.get('helper_version')}."
-        )
-
+    if manifest.get("visual_review_completed") is not True:
+        raise GhsStretchError("StarNet visual review is incomplete.")
+    if manifest.get("ghs_pass1_permitted") is not True:
+        raise GhsStretchError("StarNet manifest does not permit GHS pass 1.")
+    if manifest.get("starless_processing_permitted") is not True:
+        raise GhsStretchError("StarNet manifest does not permit starless processing.")
+    if manifest.get("starless_background_processing_permitted") is not False:
+        raise GhsStretchError("StarNet manifest incorrectly permits another background stage.")
+    if manifest.get("stage_order") != {
+        "upstream": "siril-background-neutralization",
+        "current": UPSTREAM_STAGE,
+        "downstream": CURRENT_STAGE,
+    }:
+        raise GhsStretchError("StarNet stage order does not match the current pipeline.")
+    output = manifest.get("linear_starless", {})
+    if Path(str(output.get("path", ""))).resolve() != paths["source"].resolve():
+        raise GhsStretchError("StarNet manifest does not reference canonical SHO-starless-linear.fit.")
     source_evidence = inspect_fits(paths["source"])
-    expected_hash = manifest.get("output", {}).get("sha256")
-    if not expected_hash:
-        raise GhsStretchError(
-            "Linear-denoise manifest does not record the output SHA-256."
-        )
-    if source_evidence.sha256 != expected_hash:
-        raise GhsStretchError(
-            "Canonical denoised FITS checksum does not match the "
-            "linear-denoise manifest."
-        )
-
+    if source_evidence.bitpix != -32 or source_evidence.finite_fraction != 1.0:
+        raise GhsStretchError("GHS pass 1 requires finite BITPIX -32 StarNet output.")
+    if source_evidence.sha256 != output.get("sha256"):
+        raise GhsStretchError("Canonical StarNet starless checksum does not match the manifest.")
+    review = manifest.get("visual_review", {})
+    if Path(str(review.get("record_path", ""))).resolve() != paths["source_review"].resolve():
+        raise GhsStretchError("StarNet visual-review record path does not match.")
+    if not paths["source_review"].is_file():
+        raise GhsStretchError(f"StarNet visual-review record is missing: {paths['source_review']}")
+    if sha256_file(paths["source_review"]) != review.get("record_sha256"):
+        raise GhsStretchError("StarNet visual-review record checksum does not match.")
     return manifest, source_evidence
+
 
 
 
@@ -730,26 +731,34 @@ def baseline_parameters() -> dict[str, float]:
     )
 
 
+
 def histogram_classification(metrics: dict[str, Any]) -> str:
     median = float(metrics["output_luma_median"])
-    p90 = float(metrics["output_luma_p90"])
     p99 = float(metrics["output_luma_p99"])
     low_clip = float(metrics["low_clip_fraction"])
     high_clip = float(metrics["high_clip_fraction"])
 
+    # M16 is a background-dominated starless image: source p90 and p99 sit
+    # close to the source median. Absolute lower floors for output p90/p99
+    # therefore misclassified a useful subdued pass-1 result as too_gentle.
+    #
+    # Pass-1 brightness classification is now median-centric. p99 remains a
+    # high-side safety cap, while low-side percentile shape is handled by
+    # the source-relative selection score and mandatory visual review.
     if (
         low_clip > 0.0
         or high_clip > 0.0
-        or median > 0.18
-        or p90 > 0.60
-        or p99 > 0.90
+        or median > SELECTION_TARGETS["balanced_median_maximum"]
+        or p99 > SELECTION_TARGETS["maximum_output_luma_p99"]
     ):
         return "too_strong"
 
-    if median < 0.05 or p90 < 0.22 or p99 < 0.35:
+    if median < SELECTION_TARGETS["balanced_median_minimum"]:
         return "too_gentle"
 
     return "balanced"
+
+
 
 
 def parameters_key(parameters: dict[str, float]) -> tuple[float, ...]:
@@ -817,8 +826,8 @@ def plan_second_candidate(
     if classification == "too_gentle":
         proposed = {
             "D": current["D"] + 0.35,
-            "B": current["B"] + 2.0,
-            "SP": current["SP"] + 0.00040,
+            "B": current["B"] + 1.5,
+            "SP": current["SP"] - 0.00030,
             "LP": 0.0,
             "HP": current["HP"] - 0.010,
         }
@@ -828,29 +837,31 @@ def plan_second_candidate(
         )
         direction = "stronger"
     elif classification == "too_strong":
+        source_median = float(baseline["source"]["median"])
         proposed = {
-            "D": current["D"] - 0.35,
-            "B": current["B"] - 2.0,
-            "SP": current["SP"] - 0.00040,
+            "D": 2.80,
+            "B": 5.50,
+            "SP": max(current["SP"] + 0.00100, source_median * 0.95),
             "LP": 0.0,
-            "HP": current["HP"] + 0.020,
+            "HP": 0.930,
         }
         reason = (
-            "Baseline histogram or clipping was too strong; apply the "
-            "predefined gentler step."
+            "Baseline was too strong; jump to the predefined gentler tier "
+            "with lower D/B and an SP anchored near the source median so "
+            "the background is not forced far to the right."
         )
         direction = "gentler"
     else:
         proposed = {
             "D": current["D"] - 0.25,
             "B": current["B"] - 1.5,
-            "SP": current["SP"],
+            "SP": current["SP"] + 0.00020,
             "LP": 0.0,
             "HP": current["HP"] + 0.010,
         }
         reason = (
             "Baseline was technically balanced; create the predefined "
-            "gentler comparison candidate for visual review."
+            "gentler comparison with slightly higher SP for visual review."
         )
         direction = "gentler"
 
@@ -862,6 +873,8 @@ def plan_second_candidate(
     return parameters, reason
 
 
+
+
 def plan_third_candidate(
     baseline: dict[str, Any],
     second: dict[str, Any],
@@ -870,110 +883,86 @@ def plan_third_candidate(
     classification = histogram_classification(metrics)
     current = second["parameters"]
     existing = [baseline["parameters"], second["parameters"]]
+    target = float(SELECTION_TARGETS["output_luma_median"])
+    median = float(metrics["output_luma_median"])
 
-    if classification == "too_gentle":
+    if classification == "too_strong":
+        source_median = float(second["source"]["median"])
         proposed = {
-            "D": current["D"] + 0.20,
-            "B": current["B"] + 1.0,
-            "SP": current["SP"] + 0.00020,
+            "D": 1.90,
+            "B": 2.50,
+            "SP": max(current["SP"] + 0.00080, source_median * 1.10),
+            "LP": 0.0,
+            "HP": 0.960,
+        }
+        direction = "gentler"
+        reason = (
+            "Second candidate remained too strong; use the final very-gentle "
+            "tier with substantially lower D/B and stronger highlight "
+            "protection."
+        )
+    elif classification == "too_gentle":
+        proposed = {
+            "D": current["D"] + 0.25,
+            "B": current["B"] + 1.00,
+            "SP": current["SP"] - 0.00020,
             "LP": 0.0,
             "HP": current["HP"] - 0.005,
         }
         direction = "stronger"
         reason = (
-            "Second candidate remained too subdued; apply one final "
-            "predefined stronger refinement."
+            "Second candidate is below the source-aware pass-1 median band; "
+            "apply one bounded stronger refinement."
         )
-    elif classification == "too_strong":
+    elif median > target * 1.15:
+        # Real M16 calibration:
+        # D=2.80/B=5.50/SP=0.00543/HP=0.93 produced median 0.11427.
+        # The previous +0.25/+1.0/-0.00020/-0.005 move produced 0.14298.
+        # Applying the measured response in the opposite direction is the
+        # bounded target-seeking step expected to land near 0.085.
         proposed = {
-            "D": current["D"] - 0.20,
-            "B": current["B"] - 1.0,
-            "SP": current["SP"] - 0.00020,
+            "D": current["D"] - 0.25,
+            "B": current["B"] - 1.00,
+            "SP": current["SP"] + 0.00020,
             "LP": 0.0,
-            "HP": current["HP"] + 0.010,
+            "HP": current["HP"] + 0.005,
         }
         direction = "gentler"
         reason = (
-            "Second candidate remained too strong; apply one final "
-            "predefined gentler refinement."
+            "Second candidate is technically balanced but remains above the "
+            "0.085 pass-1 median target; apply the measured M16 inverse "
+            "response step toward the target."
+        )
+    elif median < target * 0.85:
+        proposed = {
+            "D": current["D"] + 0.12,
+            "B": current["B"] + 0.50,
+            "SP": current["SP"] - 0.00010,
+            "LP": 0.0,
+            "HP": current["HP"] - 0.003,
+        }
+        direction = "stronger"
+        reason = (
+            "Second candidate is balanced but below the preferred 0.085 "
+            "median target; apply a small bounded stronger comparison."
         )
     else:
-        median_error = (
-            SELECTION_TARGETS["output_luma_median"]
-            - float(metrics["output_luma_median"])
+        # Already inside a narrow target window. Keep the third candidate
+        # close so visual review has a meaningful comparison rather than a
+        # large jump away from the measured solution.
+        direction = "gentler" if median >= target else "stronger"
+        sign = -1.0 if direction == "gentler" else 1.0
+        proposed = {
+            "D": current["D"] + sign * 0.08,
+            "B": current["B"] + sign * 0.30,
+            "SP": current["SP"] - sign * 0.00006,
+            "LP": 0.0,
+            "HP": current["HP"] - sign * 0.002,
+        }
+        reason = (
+            "Second candidate is already within the narrow pass-1 target "
+            "window; create one close bounded comparison for visual review."
         )
-        p90_error = (
-            SELECTION_TARGETS["output_luma_p90"]
-            - float(metrics["output_luma_p90"])
-        )
-        p99_error = (
-            SELECTION_TARGETS["output_luma_p99"]
-            - float(metrics["output_luma_p99"])
-        )
-        combined = (
-            median_error / 0.085
-            + p90_error / 0.35
-            + 0.5 * p99_error / 0.60
-        )
-
-        if combined > 0.08:
-            proposed = {
-                "D": current["D"] + 0.12,
-                "B": current["B"] + 0.60,
-                "SP": current["SP"] + 0.00010,
-                "LP": 0.0,
-                "HP": current["HP"] - 0.005,
-            }
-            direction = "stronger"
-            reason = (
-                "Second candidate was balanced but below the predefined "
-                "pass-1 histogram targets; apply a final small stronger "
-                "refinement."
-            )
-        elif combined < -0.08:
-            proposed = {
-                "D": current["D"] - 0.12,
-                "B": current["B"] - 0.60,
-                "SP": current["SP"] - 0.00010,
-                "LP": 0.0,
-                "HP": current["HP"] + 0.005,
-            }
-            direction = "gentler"
-            reason = (
-                "Second candidate was balanced but above the predefined "
-                "pass-1 histogram targets; apply a final small gentler "
-                "refinement."
-            )
-        else:
-            baseline_score = float(baseline["selection_score"])
-            second_score = float(second["selection_score"])
-            better = (
-                baseline["parameters"]
-                if baseline_score <= second_score
-                else second["parameters"]
-            )
-            other = (
-                second["parameters"]
-                if baseline_score <= second_score
-                else baseline["parameters"]
-            )
-            proposed = {
-                "D": (better["D"] + other["D"]) / 2.0,
-                "B": (better["B"] + other["B"]) / 2.0,
-                "SP": (better["SP"] + other["SP"]) / 2.0,
-                "LP": 0.0,
-                "HP": (better["HP"] + other["HP"]) / 2.0,
-            }
-            direction = (
-                "stronger"
-                if proposed["D"] >= current["D"]
-                else "gentler"
-            )
-            reason = (
-                "Second candidate was already near the predefined targets; "
-                "use the bounded midpoint between the two best numerical "
-                "solutions as the final refinement."
-            )
 
     parameters = ensure_unique_parameters(
         proposed,
@@ -983,6 +972,9 @@ def plan_third_candidate(
     return parameters, reason
 
 
+
+
+
 def candidate_selection_score(
     quality_assessment: dict[str, Any],
 ) -> float:
@@ -990,18 +982,29 @@ def candidate_selection_score(
     targets = SELECTION_TARGETS
 
     median = max(float(metrics["output_luma_median"]), 1.0e-9)
-    target_median = targets["output_luma_median"]
-    p90 = float(metrics["output_luma_p90"])
-    p99 = float(metrics["output_luma_p99"])
+    target_median = float(targets["output_luma_median"])
+    p90 = max(float(metrics["output_luma_p90"]), 1.0e-9)
+    p99 = max(float(metrics["output_luma_p99"]), 1.0e-9)
+    source_median = max(float(metrics["source_luma_median"]), 1.0e-9)
+    source_p90 = max(float(metrics["source_luma_p90"]), 1.0e-9)
+    source_p99 = max(float(metrics["source_luma_p99"]), 1.0e-9)
     correlation = float(metrics["luma_correlation"])
     low_clip = float(metrics["low_clip_fraction"])
     high_clip = float(metrics["high_clip_fraction"])
     roundtrip = float(metrics["roundtrip_relative_rms"])
 
+    # Preserve the source's percentile *shape* rather than forcing absolute
+    # p90/p99 targets that are inappropriate for a background-dominated,
+    # starless field. The median remains the primary pass-1 brightness goal.
+    source_p90_ratio = source_p90 / source_median
+    source_p99_ratio = source_p99 / source_median
+    output_p90_ratio = p90 / median
+    output_p99_ratio = p99 / median
+
     score = (
-        1.5 * abs(math.log(median / target_median))
-        + abs(p90 - targets["output_luma_p90"]) / 0.20
-        + abs(p99 - targets["output_luma_p99"]) / 0.25
+        2.5 * abs(math.log(median / target_median))
+        + 0.40 * abs(math.log(output_p90_ratio / source_p90_ratio))
+        + 0.40 * abs(math.log(output_p99_ratio / source_p99_ratio))
         + 12.0
         * max(
             0.0,
@@ -1015,13 +1018,98 @@ def candidate_selection_score(
     return float(score)
 
 
+
+
+
+def candidate_publication_eligible(candidate: dict[str, Any]) -> bool:
+    return (
+        candidate["quality_assessment"]["satisfactory"]
+        and candidate.get("histogram_classification") == "balanced"
+    )
+
+
+
+
+def publication_gate(
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not candidates:
+        return {
+            "status": "needs_review",
+            "publication_permitted": False,
+            "final_candidate_histogram_classification": None,
+            "final_candidate_too_strong": False,
+            "bounded_search_exhausted_too_strong": False,
+            "publication_eligible_candidates": [],
+            "reason": "No candidates were generated.",
+        }
+
+    final_classification = candidates[-1].get(
+        "histogram_classification"
+    )
+    final_too_strong = final_classification == "too_strong"
+    exhausted_too_strong = (
+        len(candidates) >= MAX_CANDIDATES_LIMIT
+        and final_too_strong
+    )
+    eligible = [
+        candidate["candidate"]
+        for candidate in candidates
+        if candidate_publication_eligible(candidate)
+    ]
+
+    if final_too_strong:
+        return {
+            "status": "needs_adjustment",
+            "publication_permitted": False,
+            "final_candidate_histogram_classification": final_classification,
+            "final_candidate_too_strong": True,
+            "bounded_search_exhausted_too_strong": exhausted_too_strong,
+            "publication_eligible_candidates": eligible,
+            "reason": (
+                "The final generated candidate is still classified "
+                "too_strong; publication is blocked and GHS pass 2 remains "
+                "disabled."
+            ),
+        }
+
+    if not eligible:
+        return {
+            "status": "needs_adjustment",
+            "publication_permitted": False,
+            "final_candidate_histogram_classification": final_classification,
+            "final_candidate_too_strong": False,
+            "bounded_search_exhausted_too_strong": False,
+            "publication_eligible_candidates": [],
+            "reason": (
+                "No technically satisfactory candidate falls inside the "
+                "source-aware balanced pass-1 median band."
+            ),
+        }
+
+    return {
+        "status": "awaiting_visual_selection",
+        "publication_permitted": True,
+        "final_candidate_histogram_classification": final_classification,
+        "final_candidate_too_strong": False,
+        "bounded_search_exhausted_too_strong": False,
+        "publication_eligible_candidates": eligible,
+        "reason": (
+            "At least one technically satisfactory candidate is classified "
+            "balanced and may proceed to CodeWarrior visual selection."
+        ),
+    }
+
+
+
+
 def recommended_candidate(
     candidates: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
     eligible = [
         candidate
         for candidate in candidates
-        if candidate["quality_assessment"]["satisfactory"]
+        if candidate_publication_eligible(candidate)
     ]
     if not eligible:
         return None
@@ -1032,6 +1120,7 @@ def recommended_candidate(
             candidate["candidate"],
         ),
     )
+
 
 
 def execute_candidate(
@@ -1053,7 +1142,7 @@ def execute_candidate(
     previews.mkdir()
 
     parameters = normalize_parameters(parameters)
-    working_source = work / "SHO-starless-linear-denoised.fit"
+    working_source = work / "SHO-starless-linear.fit"
     shutil.copy2(source_path, working_source)
 
     stretch_script = candidate / "ghs-pass1.ssf"
@@ -1098,7 +1187,7 @@ def execute_candidate(
     )
 
     before_preview = (
-        previews / "SHO-starless-linear-denoised-before-linked.png"
+        previews / "SHO-starless-linear-before-linked.png"
     )
     after_preview = previews / "SHO-starless-ghs-pass1-linear.png"
     preview_failures: list[str] = []
@@ -1194,10 +1283,15 @@ def publish(
             "new candidate while preserving the previous directory intact."
         )
 
-    if not candidate["quality_assessment"]["satisfactory"]:
+    gate = publication_gate(candidates)
+    if not gate["publication_permitted"]:
         raise GhsStretchError(
-            "The selected GHS candidate did not pass production safeguards; "
-            "canonical output was not changed."
+            f"Publication is blocked by the adaptive gate: {gate['reason']}"
+        )
+    if not candidate_publication_eligible(candidate):
+        raise GhsStretchError(
+            "The selected GHS candidate is not publication-eligible; "
+            "only technically satisfactory balanced candidates can be published."
         )
     if not visual_selection_notes.strip():
         raise GhsStretchError(
@@ -1218,7 +1312,7 @@ def publish(
     candidate_before = (
         candidate_dir
         / "previews"
-        / "SHO-starless-linear-denoised-before-linked.png"
+        / "SHO-starless-linear-before-linked.png"
     )
     candidate_after = (
         candidate_dir
@@ -1229,7 +1323,7 @@ def publish(
     staged_output = publish_dir / "SHO-starless-ghs-pass1.fit"
     staged_before = (
         publish_dir
-        / "SHO-starless-linear-denoised-before-linked.png"
+        / "SHO-starless-linear-before-linked.png"
     )
     staged_after = (
         publish_dir / "SHO-starless-ghs-pass1-linear.png"
@@ -1263,6 +1357,10 @@ def publish(
         "created_at": utc_now(),
         "status": "ready",
         "helper_version": VERSION,
+        "stage_order": {"upstream": UPSTREAM_STAGE, "current": CURRENT_STAGE, "downstream": NEXT_STAGE},
+        "upstream_stage": UPSTREAM_STAGE,
+        "next_stage": NEXT_STAGE,
+        "source_starnet_manifest_sha256": sha256_file(paths["source_manifest"]),
         "project": paths["project"].name,
         "project_path": str(paths["project"]),
         "adaptive_policy": {
@@ -1271,13 +1369,15 @@ def publish(
             "selection_targets": SELECTION_TARGETS,
             "baseline_is_proven_manual_configuration": True,
             "arbitrary_parameters_permitted": False,
+            "final_too_strong_publication_permitted": False,
         },
+        "publication_gate": gate,
         "source": asdict(source_evidence),
-        "source_linear_denoise_manifest": str(
+        "source_starnet_manifest": str(
             paths["source_manifest"]
         ),
-        "source_linear_denoise_status": source_manifest.get("status"),
-        "source_linear_denoise_helper_version": source_manifest.get(
+        "source_starnet_status": source_manifest.get("status"),
+        "source_starnet_helper_version": source_manifest.get(
             "helper_version"
         ),
         "candidates": candidates,
@@ -1301,7 +1401,7 @@ def publish(
             "satisfactory_candidates_compared": [
                 item["candidate"]
                 for item in candidates
-                if item["quality_assessment"]["satisfactory"]
+                if candidate_publication_eligible(item)
             ],
         },
         "method": candidate["method"],
@@ -1387,8 +1487,8 @@ def run_project(
         candidate_index=0,
         parameters=baseline_parameters(),
         adaptation_reason=(
-            "Proven manual M16 baseline: D=4.4, B=15, SP=0.004, "
-            "LP=0, HP=0.86."
+            "Historical manual M16 baseline retained as a reference: "
+            "D=4.4, B=15, SP=0.004, LP=0, HP=0.86."
         ),
     )
     candidates.append(baseline)
@@ -1422,21 +1522,21 @@ def run_project(
         )
         candidates.append(third)
 
-    recommended = recommended_candidate(candidates)
-    satisfactory_candidates = [
+    gate = publication_gate(candidates)
+    recommended = (
+        recommended_candidate(candidates)
+        if gate["publication_permitted"]
+        else None
+    )
+    technically_satisfactory = [
         candidate["candidate"]
         for candidate in candidates
         if candidate["quality_assessment"]["satisfactory"]
     ]
 
-    status = (
-        "awaiting_visual_selection"
-        if satisfactory_candidates
-        else "needs_review"
-    )
     run_record = {
-        "schema_version": 2,
-        "status": status,
+        "schema_version": 3,
+        "status": gate["status"],
         "created_at": utc_now(),
         "run_started_at": run_started_at,
         "helper_version": VERSION,
@@ -1456,7 +1556,21 @@ def run_project(
         ),
         "siril": siril,
         "candidates": candidates,
-        "satisfactory_candidates": satisfactory_candidates,
+        "technically_satisfactory_candidates": technically_satisfactory,
+        "publication_gate": gate,
+        "publication_permitted": gate["publication_permitted"],
+        "publication_eligible_candidates": gate[
+            "publication_eligible_candidates"
+        ],
+        "final_candidate_histogram_classification": gate[
+            "final_candidate_histogram_classification"
+        ],
+        "final_candidate_too_strong": gate[
+            "final_candidate_too_strong"
+        ],
+        "bounded_search_exhausted_too_strong": gate[
+            "bounded_search_exhausted_too_strong"
+        ],
         "recommended_candidate": (
             recommended["candidate"] if recommended is not None else None
         ),
@@ -1466,23 +1580,26 @@ def run_project(
             else None
         ),
         "canonical_output_changed": False,
-        "visual_selection_required": True,
+        "visual_selection_required": gate["publication_permitted"],
         "publish_command_template": (
             f"{Path(__file__)} publish --project "
             f"{json.dumps(project_name)} --run-root "
             f"{json.dumps(str(run_root))} --candidate <candidate-XX> "
             f"--visual-notes <review-notes> --fresh-run"
+            if gate["publication_permitted"]
+            else None
         ),
         "ghs_pass2_processing_permitted": False,
         "message": (
-            "Compare every satisfactory after-preview and publish exactly "
-            "one candidate using the publish subcommand."
-            if satisfactory_candidates
-            else "No candidate passed all production safeguards."
+            "Compare every publication-eligible after-preview and publish "
+            "exactly one candidate using the publish subcommand."
+            if gate["publication_permitted"]
+            else gate["reason"]
         ),
     }
     json_dump_atomic(run_root / "run-manifest.json", run_record)
     return run_record
+
 
 
 def publish_project(
@@ -1519,6 +1636,17 @@ def publish_project(
         )
 
     candidates = run_record.get("candidates", [])
+    gate = publication_gate(candidates)
+    if run_record.get("publication_permitted") is not True:
+        raise GhsStretchError(
+            "This run is not publication-permitted; canonical output was "
+            "not changed."
+        )
+    if not gate["publication_permitted"]:
+        raise GhsStretchError(
+            f"Publication is blocked by the adaptive gate: {gate['reason']}"
+        )
+
     matches = [
         candidate
         for candidate in candidates
@@ -1530,17 +1658,17 @@ def publish_project(
             "adaptive run."
         )
     candidate = matches[0]
-    if not candidate["quality_assessment"]["satisfactory"]:
+    if not candidate_publication_eligible(candidate):
         raise GhsStretchError(
-            f"Candidate {candidate_name} is not satisfactory and cannot "
-            "be published."
+            f"Candidate {candidate_name} is not publication-eligible and "
+            "cannot be published."
         )
 
     recommended = recommended_candidate(candidates)
     source_manifest, source_evidence = validate_source(paths)
     if source_evidence.sha256 != run_record["source"]["sha256"]:
         raise GhsStretchError(
-            "Current denoised source no longer matches the adaptive run."
+            "Current StarNet source no longer matches the adaptive run."
         )
 
     siril = siril_version()
@@ -1598,39 +1726,76 @@ def publish_project(
     return result
 
 
-def status_project(
-    workspace: Path,
-    project_name: str,
-) -> dict[str, Any]:
+
+def status_project(workspace: Path, project_name: str) -> dict[str, Any]:
     paths = project_paths(workspace, project_name)
     if not paths["stable_manifest"].is_file():
         return {
-            "status": "missing",
-            "helper_version": VERSION,
+            "status": "missing", "helper_version": VERSION,
             "project": str(paths["project"]),
             "stable_directory": str(paths["stable"]),
             "ghs_pass2_processing_permitted": False,
         }
-
-    manifest = json.loads(
-        paths["stable_manifest"].read_text(encoding="utf-8")
-    )
-    errors: list[str] = []
-
-    if not paths["stable_output"].is_file():
-        errors.append(f"Missing output: {paths['stable_output']}")
-        output_evidence = None
-    else:
-        output_evidence = asdict(inspect_fits(paths["stable_output"]))
-        expected_hash = manifest.get("output", {}).get("sha256")
-        if expected_hash and output_evidence["sha256"] != expected_hash:
-            errors.append("Output checksum does not match the manifest.")
-
-    for preview_key in ("stable_before_preview", "stable_after_preview"):
-        if not paths[preview_key].is_file():
-            errors.append(f"Missing preview: {paths[preview_key]}")
-
-    ready = manifest.get("status") == "ready" and not errors
+    try:
+        manifest = json.loads(paths["stable_manifest"].read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {
+            "status": "invalid", "helper_version": VERSION,
+            "project": str(paths["project"]), "errors": [str(exc)],
+            "ghs_pass2_processing_permitted": False,
+        }
+    if manifest.get("helper_version") != VERSION or manifest.get("upstream_stage") != UPSTREAM_STAGE:
+        return {
+            "status": "obsolete", "helper_version": VERSION,
+            "manifest_helper_version": manifest.get("helper_version"),
+            "required_helper_version": VERSION,
+            "upstream_stage": manifest.get("upstream_stage"),
+            "reason": "Existing GHS pass-1 output predates the source-aware median-targeting and balanced-only publication contract.",
+            "project": str(paths["project"]),
+            "stable_directory": str(paths["stable"]),
+            "manifest": str(paths["stable_manifest"]),
+            "ghs_pass2_processing_permitted": False,
+        }
+    errors = []
+    output_evidence = source_evidence = None
+    source_manifest = {}
+    source_manifest_hash = None
+    try:
+        source_manifest, source_evidence = validate_source(paths)
+        source_manifest_hash = sha256_file(paths["source_manifest"])
+        if manifest.get("source_starnet_manifest_sha256") != source_manifest_hash:
+            errors.append("StarNet manifest checksum changed.")
+        if manifest.get("source", {}).get("sha256") != source_evidence.sha256:
+            errors.append("GHS pass-1 source checksum changed.")
+        if not paths["stable_output"].is_file():
+            errors.append(f"Missing output: {paths['stable_output']}")
+        else:
+            output_evidence = asdict(inspect_fits(paths["stable_output"]))
+            if output_evidence["sha256"] != manifest.get("output", {}).get("sha256"):
+                errors.append("Output checksum does not match the manifest.")
+            if (
+                output_evidence["bitpix"] != -32
+                or output_evidence["finite_fraction"] != 1.0
+                or output_evidence["width"] != source_evidence.width
+                or output_evidence["height"] != source_evidence.height
+            ):
+                errors.append("Canonical GHS output format changed.")
+        for key in ("stable_before_preview", "stable_after_preview"):
+            if not paths[key].is_file():
+                errors.append(f"Missing preview: {paths[key]}")
+        if manifest.get("stage_order") != {
+            "upstream": UPSTREAM_STAGE,
+            "current": CURRENT_STAGE,
+            "downstream": NEXT_STAGE,
+        }:
+            errors.append("GHS pass-1 stage order is invalid.")
+        if manifest.get("visual_review_completed") is not True:
+            errors.append("GHS pass-1 visual review is incomplete.")
+        if manifest.get("ghs_pass2_processing_permitted") is not True:
+            errors.append("Manifest does not permit GHS pass 2.")
+    except Exception as exc:
+        errors.append(str(exc))
+    ready = manifest.get("status") == "ready" and not errors and manifest.get("ghs_pass2_processing_permitted") is True
     return {
         "status": "ready" if ready else "invalid",
         "helper_version": VERSION,
@@ -1638,29 +1803,29 @@ def status_project(
         "stable_directory": str(paths["stable"]),
         "manifest": str(paths["stable_manifest"]),
         "errors": errors,
-        "adaptive_policy": manifest.get("adaptive_policy"),
-        "candidate_count": len(manifest.get("candidates", [])),
-        "recommended_candidate": manifest.get("recommended_candidate"),
-        "selected_candidate": manifest.get("selected_candidate"),
-        "selected_candidate_was_recommended": manifest.get(
-            "selected_candidate_was_recommended"
-        ),
-        "visual_selection": manifest.get("visual_selection"),
-        "source": manifest.get("source"),
+        "upstream_summary": {
+            "manifest": str(paths["source_manifest"]),
+            "manifest_sha256": source_manifest_hash,
+            "helper_version": source_manifest.get("helper_version"),
+            "status": source_manifest.get("status"),
+            "visual_review_completed": source_manifest.get("visual_review_completed"),
+            "ghs_pass1_permitted": source_manifest.get("ghs_pass1_permitted"),
+        },
+        "source": asdict(source_evidence) if source_evidence is not None else None,
         "method": manifest.get("method"),
         "quality_assessment": manifest.get("quality_assessment"),
         "roundtrip_evidence": manifest.get("roundtrip_evidence"),
         "output": output_evidence,
         "previews": manifest.get("previews"),
-        "previous_processing_ghs_pass1_preserved_at": manifest.get(
-            "previous_processing_ghs_pass1_preserved_at"
-        ),
-        "visual_review_completed": manifest.get(
-            "visual_review_completed",
-            False,
-        ),
+        "candidate_count": manifest.get("candidate_count"),
+        "recommended_candidate": manifest.get("recommended_candidate"),
+        "selected_candidate": manifest.get("selected_candidate"),
+        "selected_candidate_was_recommended": manifest.get("selected_candidate_was_recommended"),
+        "visual_review_completed": ready,
+        "next_stage": NEXT_STAGE,
         "ghs_pass2_processing_permitted": ready,
     }
+
 
 def write_synthetic_fits(path: Path) -> None:
     rng = np.random.default_rng(440015)
@@ -1833,6 +1998,100 @@ def self_test_execution_assessment(
         ),
     }
 
+
+
+def policy_self_test() -> dict[str, Any]:
+    too_strong_metrics = {
+        "output_luma_median": 0.30,
+        "output_luma_p90": 0.32,
+        "output_luma_p99": 0.36,
+        "low_clip_fraction": 0.0,
+        "high_clip_fraction": 0.0,
+    }
+    balanced_metrics = {
+        "output_luma_median": 0.085,
+        "output_luma_p90": 0.090,
+        "output_luma_p99": 0.110,
+        "low_clip_fraction": 0.0,
+        "high_clip_fraction": 0.0,
+    }
+    too_gentle_metrics = {
+        "output_luma_median": 0.035,
+        "output_luma_p90": 0.040,
+        "output_luma_p99": 0.050,
+        "low_clip_fraction": 0.0,
+        "high_clip_fraction": 0.0,
+    }
+
+    def fake(name: str, metrics: dict[str, float]) -> dict[str, Any]:
+        classification = histogram_classification(metrics)
+        return {
+            "candidate": name,
+            "histogram_classification": classification,
+            "selection_score": 0.0,
+            "quality_assessment": {
+                "satisfactory": True,
+                "metrics": metrics,
+            },
+        }
+
+    blocked_candidates = [
+        fake("candidate-00", too_strong_metrics),
+        fake("candidate-01", too_strong_metrics),
+        fake("candidate-02", too_strong_metrics),
+    ]
+    blocked_gate = publication_gate(blocked_candidates)
+    if blocked_gate["publication_permitted"]:
+        raise GhsStretchError(
+            "Policy self-test failed: all-too-strong run was publishable."
+        )
+    if not blocked_gate["bounded_search_exhausted_too_strong"]:
+        raise GhsStretchError(
+            "Policy self-test failed: final too-strong exhaustion was not "
+            "detected."
+        )
+
+    allowed_candidates = [
+        fake("candidate-00", too_strong_metrics),
+        fake("candidate-01", balanced_metrics),
+        fake("candidate-02", balanced_metrics),
+    ]
+    allowed_gate = publication_gate(allowed_candidates)
+    if not allowed_gate["publication_permitted"]:
+        raise GhsStretchError(
+            "Policy self-test failed: balanced candidates were blocked."
+        )
+
+    no_balanced = [
+        fake("candidate-00", too_gentle_metrics),
+        fake("candidate-01", too_gentle_metrics),
+        fake("candidate-02", too_gentle_metrics),
+    ]
+    no_balanced_gate = publication_gate(no_balanced)
+    if no_balanced_gate["publication_permitted"]:
+        raise GhsStretchError(
+            "Policy self-test failed: all-too-gentle run was publishable."
+        )
+
+    return {
+        "status": "success",
+        "all_too_strong_publication_blocked": True,
+        "all_too_gentle_publication_blocked": True,
+        "balanced_publication_permitted": True,
+        "balanced_median_minimum": (
+            SELECTION_TARGETS["balanced_median_minimum"]
+        ),
+        "balanced_median_maximum": (
+            SELECTION_TARGETS["balanced_median_maximum"]
+        ),
+        "median_target": SELECTION_TARGETS["output_luma_median"],
+        "source_relative_percentile_shape": True,
+        "parameter_bounds": PARAMETER_BOUNDS,
+    }
+
+
+
+
 def self_test(timeout_seconds: int) -> dict[str, Any]:
     siril = siril_version()
     root = (
@@ -1882,6 +2141,7 @@ def self_test(timeout_seconds: int) -> dict[str, Any]:
     candidates.append(third)
 
     execution = self_test_execution_assessment(candidates)
+    policy = policy_self_test()
     if not execution["satisfactory"]:
         raise GhsStretchError(
             f"Adaptive GHS execution self-test failed "
@@ -1903,7 +2163,10 @@ def self_test(timeout_seconds: int) -> dict[str, Any]:
             recommended["candidate"] if recommended is not None else None
         ),
         "execution_assessment": execution,
+        "policy_assessment": policy,
         "tests": [
+            "final bounded too-strong publication gate",
+            "expanded gentler GHS parameter range",
             "three real bounded Siril GHT executions",
             "three real inverse-GHT executions",
             "proven M16 baseline candidate",
@@ -1925,7 +2188,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Generate, compare, and publish a bounded adaptive first M16 "
-            "GHS stretch for the canonical denoised starless FITS."
+            "GHS stretch for the canonical StarNet starless FITS."
         )
     )
     parser.add_argument("--version", action="version", version=VERSION)

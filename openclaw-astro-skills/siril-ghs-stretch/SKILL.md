@@ -1,207 +1,209 @@
 ---
 name: siril-ghs-stretch
-description: "Generate up to three bounded first-pass GHS candidates, compare their permanent previews, and publish the best satisfactory starless result."
+description: "Generate at most three source-aware first-pass GHS candidates from the reviewed StarNet starless image, block unsuitable candidate sets, visually compare balanced candidates, and publish one reviewed result."
 user-invocable: true
 metadata: {"openclaw":{"os":["linux"]}}
 ---
 
-# Adaptive Siril GHS Stretch
+# Adaptive Siril GHS Stretch — pass 1
 
-Installed helper version: **1.1.0**.
+Installed helper version: **1.3.1**.
 
-This skill implements **GHS pass 1 only**.
-
-## Required input
+## Required pipeline
 
 ```text
-<project>/processing/linear-denoise/SHO-starless-linear-denoised.fit
+siril-starnet-removal 1.5.2
+→ siril-ghs-stretch-pass1 1.3.1
+→ siril-ghs-stretch-pass2
 ```
 
-The helper verifies it against:
+Only:
 
 ```text
-<project>/processing/linear-denoise/linear-denoise-manifest.json
+processing/starnet/SHO-starless-linear.fit
 ```
 
-The upstream manifest must be `ready`, permit downstream linear processing,
-and report helper version `1.0.1`.
+is processed.
 
-## Two-phase workflow
+## M16 calibration incorporated into 1.3.1
 
-### Phase 1: Generate and analyze candidates
-
-```bash
-ghs_stretch.py run   --project "M16 July 2026"   --fresh-run   --max-candidates 3   --timeout 7200
-```
-
-This creates **at most three total candidates** and does not modify the
-canonical `processing/ghs-pass1` directory.
-
-The result status is:
+The preserved 1.3.0 real-M16 probe measured:
 
 ```text
-awaiting_visual_selection
+candidate-00
+D=4.40 B=15.0 SP=0.00400 HP=0.860
+median=0.374810
+classification=too_strong
+
+candidate-01
+D=2.80 B=5.5 SP=0.00543 HP=0.930
+median=0.114271
+p90=0.118760
+p99=0.143899
+
+candidate-02
+D=3.05 B=6.5 SP=0.00523 HP=0.925
+median=0.142980
+classification=too_strong
 ```
 
-when at least one candidate passes all production safeguards.
-
-### Phase 2: Visually select and publish
-
-CodeWarrior must inspect every satisfactory permanent after-preview, compare
-them, and publish exactly one:
-
-```bash
-ghs_stretch.py publish   --project "M16 July 2026"   --run-root "<adaptive-run-directory>"   --candidate "candidate-XX"   --visual-notes "<specific comparison and selection rationale>"   --fresh-run
-```
-
-The selected candidate must be technically satisfactory. Visual notes are
-mandatory and are stored in the canonical manifest.
-
-## Candidate policy
-
-### Candidate 00 — proven baseline
+The pass-1 median target is:
 
 ```text
-D=4.400
-B=15.000
-SP=0.00400
-LP=0.00000
-HP=0.86000
-Colour model: Even weighted luminance
-Clip mode: RGB Blend
+0.085
 ```
 
-### Candidate 01 — controlled comparison
+Candidate-01 was much closer to that target than candidate-00, but 1.3.0
+misclassified it `too_gentle` because it imposed absolute lower p90/p99 floors
+that do not fit a background-dominated starless field.
 
-The baseline histogram and clipping metrics determine one predefined change:
+## Source-aware brightness classification
 
-- **Too gentle:** controlled stronger step
-- **Too strong or clipped:** controlled gentler step
-- **Balanced:** predefined gentler comparison candidate
+Version 1.3.1 makes the median the primary pass-1 brightness gate.
 
-### Candidate 02 — final bounded refinement
+```text
+balanced median: 0.055–0.125
+target median:   0.085
+too strong:      median > 0.125
+too gentle:      median < 0.055
+```
 
-The second candidate's metrics determine one final predefined adjustment:
+Any clipping is `too_strong`.
 
-- small stronger refinement
-- small gentler refinement
-- or a bounded midpoint when already near target
+An output p99 above `0.75` is also `too_strong`.
 
-There is no fourth candidate.
+Absolute lower p90/p99 floors are removed. p90/p99 remain evidence and are used
+in the recommendation through their ratio to the median compared with the
+source's own percentile ratios.
+
+## Source-relative recommendation
+
+The numerical score now prioritizes:
+
+1. distance of output median from 0.085;
+2. preservation of source p90/median shape;
+3. preservation of source p99/median shape;
+4. luminance correlation;
+5. inverse-GHT roundtrip;
+6. clipping.
+
+It no longer tries to force every image toward absolute p90=0.35 and p99=0.60.
+
+## Bounded candidates
+
+Maximum total candidates remains **3**.
+
+Candidate-00 remains the historical reference baseline.
+
+When candidate-00 is too strong, candidate-01 remains the measured gentle tier:
+
+```text
+D=2.800
+B=5.500
+SP=max(0.00500, 0.95 × source median)
+LP=0
+HP=0.930
+```
+
+For current M16:
+
+```text
+SP≈0.00543
+```
+
+When candidate-01 is balanced but more than 15% above the target median,
+candidate-02 applies the inverse of the measured M16 stronger-response step:
+
+```text
+D = candidate-01 D  - 0.25
+B = candidate-01 B  - 1.00
+SP= candidate-01 SP + 0.00020
+LP=0
+HP= candidate-01 HP + 0.005
+```
+
+For M16 this resolves to:
+
+```text
+D=2.550
+B=4.500
+SP=0.00563
+LP=0
+HP=0.935
+```
+
+The real 1.3.0 probe showed that the opposite step increased median by about
+0.0287. This inverse step is therefore expected to move candidate-01 from
+~0.114 toward ~0.085.
 
 ## Hard parameter bounds
 
 ```text
-D: 3.800–5.000
-B: 10.000–20.000
-SP: 0.00250–0.00600
-LP: fixed at 0.00000
-HP: 0.82000–0.92000
+D:  1.500–5.000
+B:  2.000–15.000
+SP: 0.00200–0.01200
+LP: exactly 0
+HP: 0.82000–0.97000
 ```
 
-The helper cannot invent arbitrary values or exceed these ranges.
+## Publication policy
 
-## Preserved evidence
-
-Every candidate keeps:
+A publication-eligible candidate must be:
 
 ```text
-candidate-XX/work/SHO-starless-ghs-pass1.fit
-candidate-XX/work/SHO-starless-ghs-pass1-roundtrip.fit
-candidate-XX/previews/SHO-starless-ghs-pass1-linear.png
-candidate-XX/previews/SHO-starless-linear-denoised-before-linked.png
-candidate-XX/logs/
-candidate-XX/ghs-pass1.ssf
-candidate-XX/previews.ssf
+technical status: satisfactory
+histogram classification: balanced
 ```
 
-Each run manifest records:
+`too_strong` and `too_gentle` candidates are not publishable.
 
-- parameters and adaptation reason
-- GHT and inverse-GHT commands
-- FITS evidence and checksums
-- clipping, histogram, correlation, and roundtrip metrics
-- numerical selection score
-- script and log paths
-- preview paths
-- the numerically recommended candidate
-
-## Selection rules
-
-Only candidates whose production quality assessment is satisfactory can be
-published.
-
-The script gives a numerical recommendation. CodeWarrior must still compare
-all satisfactory permanent previews and may choose a different satisfactory
-candidate when the visual evidence is better.
-
-Visual comparison must consider:
-
-- visibility of the Eagle Nebula without making pass 1 final-bright
-- preservation of the dark Pillars
-- faint outer emission
-- highlight protection
-- background naturalness
-- absence of clipping, blocks, posterization, rings, hard edges, or missing
-  areas
-
-If CodeWarrior cannot inspect the previews, it must not claim visual review or
-publish a candidate.
-
-## Canonical outputs
-
-After publication:
+If the final generated candidate is still `too_strong`, the whole run is a
+hard stop:
 
 ```text
-<project>/processing/ghs-pass1/SHO-starless-ghs-pass1.fit
-<project>/processing/ghs-pass1/SHO-starless-linear-denoised-before-linked.png
-<project>/processing/ghs-pass1/SHO-starless-ghs-pass1-linear.png
-<project>/processing/ghs-pass1/ghs-pass1-manifest.json
+status: needs_adjustment
+publication_permitted: false
+ghs_pass2_processing_permitted: false
 ```
 
-The after-preview is saved without AutoStretch and represents the actual
-permanent GHS result.
+If no balanced candidate exists, publication is also blocked.
 
-## Preservation behavior
+The `publish` command recalculates the gate.
 
-An existing canonical `processing/ghs-pass1` directory remains untouched while
-all candidates are generated and reviewed.
+## Visual selection
 
-On successful publication, it is preserved intact under:
+When the gate opens, CodeWarrior must inspect every balanced permanent after
+preview and select the best actual image. Do not ask Peter or ChatGPT to choose.
+
+The numerical recommendation is advisory.
+
+## Preservation
+
+Candidate generation never changes the current canonical GHS directory.
+
+Successful fresh publication preserves the entire old:
 
 ```text
-<adaptive-run>/previous-processing-ghs-pass1/
+processing/ghs-pass1
 ```
 
-The new canonical directory is published atomically. Nothing is deleted.
+beneath the new run as:
 
-## Commands
-
-```bash
-ASTRO_PY="/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/.venv/bin/python"
-GHS="/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-ghs-stretch/scripts/ghs_stretch.py"
-
-"$ASTRO_PY" "$GHS" --version
-"$ASTRO_PY" "$GHS" self-test --timeout 1800
-
-"$ASTRO_PY" "$GHS" run   --project "M16 July 2026"   --fresh-run   --max-candidates 3   --timeout 7200
-
-"$ASTRO_PY" "$GHS" publish   --project "M16 July 2026"   --run-root "<run-root>"   --candidate "candidate-XX"   --visual-notes "<comparison rationale>"   --fresh-run
-
-"$ASTRO_PY" "$GHS" status   --project "M16 July 2026"
+```text
+previous-processing-ghs-pass1/
 ```
 
-## Prohibited actions
+Nothing is deleted.
 
-Do not:
+An existing 1.2.2 result is obsolete under 1.3.1 and cannot permit pass 2.
 
-- generate more than three total candidates
-- use parameters outside the hard bounds
-- invent unplanned values
-- publish before reviewing every satisfactory preview
-- publish an unsatisfactory candidate
-- process the starmask or unscreen stars
-- apply GHS pass 2
-- adjust black point, green, or saturation
-- apply AutoStretch to the canonical FITS
-- delete candidates, previous results, logs, or evidence
+## Stop point
+
+A valid 1.3.1 publication may set:
+
+```text
+next_stage: siril-ghs-stretch-pass2
+ghs_pass2_processing_permitted: true
+```
+
+but this skill does not execute pass 2.
