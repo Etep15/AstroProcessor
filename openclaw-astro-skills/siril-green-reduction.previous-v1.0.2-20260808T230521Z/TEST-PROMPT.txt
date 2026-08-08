@@ -1,0 +1,36 @@
+Verify the installed siril-green-reduction v1.0.0 skill only.
+
+This is VERIFICATION ONLY. It is NOT a request to process M16.
+
+Use exactly:
+/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction
+
+Do not search for the helper. Do not choose Python. Do not use find, ls, cat,
+grep, jq, or globbing.
+
+1. Run `.../green-reduction --version`. Require exactly `1.0.0`.
+
+2. Run `.../green-reduction stage-status --project "M16 July 2026"`.
+Require `status: missing`, `next_stage: siril-green-reduction`, and
+`saturation_processing_permitted: false`.
+
+3. Run `.../green-reduction advance --project "M16 July 2026" --plan-only`.
+Require `status: would_generate_candidates`, candidate amounts 0.10/0.15/0.20,
+manual_baseline_amount 0.15, and confirmation_required false. Do not follow the
+action.
+
+4. Run `.../green-reduction select-publish --help`. Confirm it requires
+--project, --candidate, --visual-notes, --note/--candidate-note and has optional
+--policy-override-reason.
+
+5. Report only these verification results.
+
+STOP.
+DO NOT run advance without --plan-only.
+DO NOT generate candidates.
+DO NOT Read candidate images.
+DO NOT select anything.
+DO NOT call select-publish.
+DO NOT publish.
+DO NOT run saturation.
+DO NOT execute any further command after step 4.
