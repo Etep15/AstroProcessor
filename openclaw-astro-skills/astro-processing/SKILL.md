@@ -5,6 +5,70 @@ user-invocable: true
 metadata: {"openclaw":{"os":["linux"]}}
 ---
 
+## Named stage request router — highest priority
+
+This routing rule takes precedence over the full-pipeline instructions below.
+
+When the user requests a **named installed processing stage** for an existing
+project, for example:
+
+```text
+Process M16 July 2026 with SHO channel balance
+Process M16 July 2026 with green reduction
+Process M16 July 2026 with black point
+```
+
+that request is **not** permission to start, recreate, import, prepare, or
+resume the complete pipeline.
+
+For named-stage requests:
+
+1. Identify the matching installed stage skill.
+2. Read that stage skill's `SKILL.md`.
+3. Hand control to that stage immediately.
+4. Follow the stage skill's canonical project root and helper.
+5. Do not execute earlier or later pipeline stages.
+
+Canonical existing CodeWarrior projects root:
+
+```text
+/home/peter/.openclaw/workspace/agents/codewarrior/Projects
+```
+
+Do not substitute:
+
+```text
+/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/Projects
+```
+
+For a named-stage request, **never** run any AstroProcessor operation,
+including `astroproc --help`, `-np`, `-c`, or `-p`; never inspect ASIAIR source
+directories; never create/copy/prepare a project; and never rediscover the
+project in alternate roots.
+
+Explicit routing:
+
+```text
+SHO channel balance
+→ siril-sho-channel-balance
+→ /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-sho-channel-balance/bin/sho-channel-balance
+```
+
+Therefore the request:
+
+```text
+Process M16 July 2026 with SHO channel balance
+```
+
+must be handled only by `siril-sho-channel-balance`. The first processing
+command for that request is its `advance --project "M16 July 2026"` entry
+point. Do not run AstroProcessor first.
+
+The full `astro-processing` workflow below applies only when the user actually
+asks to process an unprocessed/raw dataset or requests the complete pipeline
+from source/import onward.
+
+
 # Siril CLI command
 
 The approved Siril CLI command prefix is:
@@ -86,6 +150,27 @@ If `siril-cli-runner` is unavailable:
 - stop before the first Siril stage
 - report the missing supporting skill
 
+## Post-StarNet PixelMath channel-balance named-stage route — highest priority
+
+Treat all of these as the same existing-project named stage:
+
+```text
+SHO channel balance
+PixelMath channel balance
+pixel math channel balance
+SHO PixelMath channel balance
+```
+
+Route them directly to `siril-sho-channel-balance` and begin with:
+
+```text
+/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-sho-channel-balance/bin/sho-channel-balance advance --project "<project>"
+```
+
+For this named-stage request, do not invoke AstroProcessor/`astroproc`, do not inspect `/mnt/asiair`, and do not initialize, copy, prepare, rediscover, or rebuild the project. Use only the canonical existing project under `/home/peter/.openclaw/workspace/agents/codewarrior/Projects`.
+
+This routing rule supersedes any older prose suggesting that PixelMath SHO colour balancing is performed on the star-containing SHO image. Channel balance is now **post-StarNet and STARLESS only**.
+
 # Workflow order
 
 Use this processing order:
@@ -99,22 +184,31 @@ Use this processing order:
 7. Collect, identify, and evaluate the Ha, SII, and OIII masters.
 8. Align the three master images.
 9. Crop them to a common valid region.
-10. Perform the SHO channel combination.
-11. Remove stars from the linear SHO image.
-12. Apply linear noise reduction to the starless image.
-13. Apply GHS pass 1 to the starless image.
-14. Apply GHS pass 2 to the starless image.
-15. Adjust the black point on the starless image.
-16. Apply green reduction to the starless image.
-17. Adjust saturation and bounded colour balance on the starless image.
-18. Process the star image separately.
-19. Recombine the stars and starless image.
-20. Export the final PNG, TIFF, and processing-master FITS.
-21. Write a processing report.
+10. Perform the **pure SHO channel combination** without adaptive colour balancing.
+11. Apply background neutralization to the linear SHO image.
+12. Run StarNet and preserve the matched starless/starmask/unscreen-star products.
+13. Apply bounded **PixelMath/SHO channel balance to the reviewed STARLESS image only** using `siril-sho-channel-balance`.
+14. Apply GHS pass 1 to the balanced starless image.
+15. Apply GHS pass 2 to the starless image.
+16. Adjust the black point on the starless image.
+17. Apply green reduction to the starless image.
+18. Adjust saturation and bounded later colour refinement on the starless image.
+19. Process the preserved star image separately.
+20. Recombine the processed stars and starless nebula.
+21. Export the final PNG, TIFF, and processing-master FITS.
+22. Write a processing report.
 
-This order separates the stars immediately after the linear SHO combination so
-all subsequent stretching, black-point, green-reduction, and colour processing
-can be applied to the starless image without creating magenta or green stars.
+Critical colour-order rule:
+
+```text
+siril-sho-combination
+→ siril-background-neutralization
+→ siril-starnet-removal
+→ siril-sho-channel-balance
+→ siril-ghs-stretch
+```
+
+PixelMath channel balancing after StarNet changes the nebular SHO colour ratios without changing the saved star layer. Do **not** apply the adaptive channel-balance stage to a star-containing SHO image. The preserved StarNet starmask/unscreen-stars are not inputs to channel balance and remain available for independent star processing and recomposition.
 
 # Prompt interpretation
 
@@ -980,73 +1074,28 @@ Do not use cropping to conceal channel misalignment.
 
 # Stage 10 — SHO channel combination
 
-## Baseline
-
-Map:
+Create and publish the **pure linear SHO composition** only:
 
 - red = SII
 - green = Ha
 - blue = OIII
 
-For the M16 profile, start with:
+Do not perform the adaptive PixelMath colour-balance search here. Preserve this star-containing SHO image as the upstream checkpoint for background neutralization and StarNet. The bounded PixelMath colour-balance stage runs later on `processing/starnet/SHO-starless-linear.fit` through the dedicated `siril-sho-channel-balance` skill.
 
-- red: `S`
-- green: `med(S) + 0.25 * (H - med(H))`
-- blue: `med(S) + (O - med(O))`
+Guardrails:
 
-Save a new 32-bit linear RGB FITS checkpoint.
-
-Do not permanently stretch the individual channel masters.
-
-## Evaluation
-
-Under a standardized preview, inspect:
-
-- background-channel balance
-- excessive green dominance
-- magenta background
-- clipped channels
-- nebular structure in all channels
-- amplified OIII noise
-- colour discontinuities
-- correct filter mapping
-
-## Guardrails
-
-Maximum 3 candidates.
-
-For the Ha coefficient:
-
-- starting value: `0.25`
-- maximum per-attempt change: `0.05`
-- automatic bounds: `0.15` to `0.40`
-
-For channel normalization factors:
-
-- maximum per-attempt change: 15%
-- maximum cumulative change from baseline: 30%
-
-Do not change multiple channel factors and the combination expression in one
-attempt.
-
-Do not force a neutral-grey nebula. SHO colour is synthetic.
-
-Do not brighten a weak channel so aggressively that its noise dominates.
-
-Ideal clipping is zero. Reject a candidate with meaningful new channel
-clipping.
-
-Save the accepted linear SHO image as a major restart checkpoint.
+- keep the composition linear;
+- do not alter star colours here;
+- do not use downstream green reduction as a substitute for channel balance;
+- hand off to background neutralization, then StarNet.
 
 # Stage 11 — Star removal
 
-Use the approved installed `StarNet.py` Siril Python script immediately after
-the accepted linear SHO combination and before any denoising, stretching,
-black-point, green-reduction, or saturation processing.
+Use the approved installed StarNet workflow after background neutralization and before PixelMath channel balance, denoising, stretching, black-point, green-reduction, or saturation processing.
 
 ## Baseline
 
-- source image is the accepted linear SHO image from Stage 10
+- source image is the accepted background-neutralized linear SHO image
 - linear-image option: enabled
 - 2x upsampling: enabled
 - custom stride: disabled
@@ -1645,3 +1694,46 @@ Use `.ssf` or approved Siril Python scripts for deterministic image operations.
 
 Never sacrifice source preservation, reproducibility, or bounded execution in
 pursuit of a marginally better-looking image.
+
+## Canonical GHS installed-skill routing
+
+Use these exact installed skill names:
+
+```text
+GHS pass 1
+GHS stretch pass 1
+siril-ghs-stretch-pass1   (compatibility stage label)
+→ siril-ghs-stretch
+
+GHS pass 2
+GHS stretch pass 2
+→ siril-ghs-stretch-pass2
+```
+
+Never search for or create a `skills/siril-ghs-stretch-pass1/` directory.
+The actual pass-1 skill is `skills/siril-ghs-stretch/`.
+
+The pipeline in installed-skill names is:
+
+```text
+siril-sho-combination
+→ siril-background-neutralization
+→ siril-starnet-removal
+→ siril-sho-channel-balance
+→ siril-ghs-stretch
+→ siril-ghs-stretch-pass2
+```
+
+## GHS pass-1 v1.3.2 execution routing
+
+For `Process <project> with GHS stretch pass 1`, route to the installed
+`siril-ghs-stretch` skill and use exactly:
+
+```text
+/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-ghs-stretch/bin/ghs-stretch advance --project "<project>"
+```
+
+Do not probe Python environments, inspect the skill directory, or invoke
+`scripts/ghs_stretch.py` directly. Pass 2 remains
+`siril-ghs-stretch-pass2` and must require the pass-1 v1.3.2 visual-selection
+record before processing.

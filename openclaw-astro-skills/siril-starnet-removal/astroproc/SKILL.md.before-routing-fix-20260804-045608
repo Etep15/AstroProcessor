@@ -1,0 +1,237 @@
+---
+name: astroproc
+description: "Use the AstroProcessor astroproc command to create projects, copy ASIAIR files, and prepare Siril processing folders."
+user-invocable: true
+metadata: {"openclaw":{"os":["linux"]}}
+---
+
+# AstroProcessor command skill
+
+Use this skill when the user asks to create an AstroProcessor project, copy an
+ASIAIR project into it, prepare it for Siril, or perform those operations
+together.
+
+This skill explains how to invoke `astroproc`. AstroProcessor itself owns the
+project, source-layout, copying, calibration-selection, and preparation logic.
+
+Do not duplicate or second-guess that logic in the skill.
+
+# Approved installation
+
+Repository:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor
+
+Executable:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc
+
+Projects:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/Projects
+
+Shared calibration:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/calibration
+
+Always invoke the executable by its absolute path.
+
+# Important operating rules
+
+- Let `astroproc` handle an existing project directory.
+- Do not stop merely because the project directory already exists.
+- Do not delete, rename, move, or replace an existing project manually.
+- Do not inspect the ASIAIR tree and reject a source-project location before
+  running `astroproc`.
+- Do not assume the source project must be a direct child of `Autorun`.
+- Let `astroproc` understand the ASIAIR layout, including folders such as
+  `Autorun/Light/<source project>`.
+- Do not manually copy files as a substitute for `astroproc -c`.
+- Do not manually build processing folders or symbolic links as a substitute
+  for `astroproc -p`.
+- Preserve the exact ASIAIR source-project name supplied by the user.
+- Quote project names, source-project names, and paths.
+- Never delete source files or shared calibration files.
+- Do not run Siril from this skill.
+
+Only stop before running a requested command when the executable or a required
+user-supplied argument is missing.
+
+After a command runs, report its actual output and exit status. Do not invent a
+failure based on assumptions about the filesystem layout.
+
+# Required values
+
+Keep these values distinct:
+
+- destination project name
+- exact ASIAIR source-project name
+- ASIAIR source root
+- ASIAIR source type
+
+Example:
+
+- destination project: `M16 July 2026`
+- exact ASIAIR source project: `M 16`
+- source root: `/mnt/asiair/emmc`
+- source type: `autorun`
+
+Do not change `M 16` to `M16`.
+
+# Check the command
+
+Before the first operation in a session, confirm that this succeeds:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc --help
+
+Do not install dependencies or modify the launcher during an AstroProcessor
+operation.
+
+# Create a project
+
+Command:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -np "<destination project>"
+
+Example:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -np "M16 July 2026"
+
+Run the command even when the destination directory already exists. Let
+AstroProcessor decide whether to create, reuse, or reject it.
+
+Do not make that decision in the skill.
+
+# Copy an ASIAIR project
+
+Command:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -c "<destination project>" \
+      -sp "<exact ASIAIR source project>" \
+      -sd "<ASIAIR source root>" \
+      -t "<source type>"
+
+Example:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -c "M16 July 2026" \
+      -sp "M 16" \
+      -sd "/mnt/asiair/emmc" \
+      -t autorun
+
+All four options are required:
+
+- `-c` destination AstroProcessor project
+- `-sp` exact ASIAIR source-project name
+- `-sd` mounted ASIAIR source root
+- `-t` ASIAIR source type
+
+Do not search for the source project and substitute a discovered path for
+`-sp`. Pass the exact source-project name and source root to AstroProcessor.
+
+Do not reject a source because it appears under `Autorun/Light`. Run the
+documented command and let AstroProcessor locate the relevant ASIAIR files.
+
+After the command finishes, report:
+
+- exit status
+- AstroProcessor's copy summary
+- destination paths reported by AstroProcessor
+- copied-file counts when AstroProcessor reports them
+- warnings or rejected files reported by AstroProcessor
+
+If the command reports success but zero copied files, report that result as a
+copy failure and stop before preparation.
+
+# Prepare a project
+
+Command:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -p "<destination project>"
+
+Example:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -p "M16 July 2026"
+
+Let AstroProcessor select calibration folders and create the processing
+structure.
+
+Do not manually create or replace links.
+
+After the command finishes, report:
+
+- exit status
+- filters prepared
+- processing paths reported by AstroProcessor
+- calibration directories selected
+- warnings or errors reported by AstroProcessor
+
+A read-only post-check may confirm that created links resolve, but it must not
+replace AstroProcessor's behavior or modify the project.
+
+# Full setup
+
+When the user asks to create, copy, and prepare a project, run these commands in
+order:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -np "<destination project>"
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -c "<destination project>" \
+      -sp "<exact ASIAIR source project>" \
+      -sd "<ASIAIR source root>" \
+      -t "<source type>"
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -p "<destination project>"
+
+Proceed according to the actual result of each AstroProcessor command.
+
+- If `-np` reports that the project already exists but does not report a fatal
+  failure, continue to `-c`.
+- If `-c` fails or copies zero files, stop before `-p`.
+- If `-c` succeeds with copied files, run `-p`.
+- Do not add additional filesystem assumptions between these commands.
+
+# Short invocation example
+
+For:
+
+    Create "M16 July 2026", copy the exact ASIAIR project "M 16" from
+    Autorun at /mnt/asiair/emmc, and prepare it for Siril.
+
+run:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -np "M16 July 2026"
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -c "M16 July 2026" \
+      -sp "M 16" \
+      -sd "/mnt/asiair/emmc" \
+      -t autorun
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -p "M16 July 2026"
+
+# Final response
+
+Report:
+
+- commands executed
+- exit status of each command
+- AstroProcessor's own summaries
+- project path
+- shared calibration path
+- copied-file counts
+- prepared filters
+- any actual blocker reported by AstroProcessor
+
+Do not report speculative blockers based only on directory names or an
+existing destination folder.

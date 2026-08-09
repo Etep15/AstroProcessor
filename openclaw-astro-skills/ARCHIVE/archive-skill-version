@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Preservation-only helper for future installers.
+# Usage:
+#   archive-skill-version /absolute/path/to/old-skill-directory [archive-name]
+#
+# This MOVES the supplied directory into skills/ARCHIVE/versions/.
+# It never deletes or overwrites an existing archived directory.
+
+SKILLS="/home/peter/.openclaw/workspace/agents/codewarrior/skills"
+DEST_ROOT="$SKILLS/ARCHIVE/versions"
+
+fail() {
+    printf 'ERROR: %s\n' "$1" >&2
+    exit 1
+}
+
+src="${1:-}"
+name="${2:-}"
+
+[ -n "$src" ] || fail "source skill directory is required"
+[ -d "$src" ] || fail "source directory does not exist: $src"
+
+case "$src" in
+    "$SKILLS"/*) ;;
+    *) fail "source must be beneath $SKILLS" ;;
+esac
+
+case "$src" in
+    "$SKILLS/ARCHIVE"|"$SKILLS/ARCHIVE/"*)
+        fail "source is already inside ARCHIVE"
+        ;;
+esac
+
+if [ -z "$name" ]; then
+    name="$(basename "$src")"
+fi
+
+mkdir -p "$DEST_ROOT" || fail "could not create archive destination"
+
+dest="$DEST_ROOT/$name"
+if [ -e "$dest" ]; then
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    dest="$DEST_ROOT/${name}.archived-$stamp"
+fi
+
+mv "$src" "$dest" || fail "could not move $src to $dest"
+printf '%s\n' "$dest"

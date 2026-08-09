@@ -170,3 +170,32 @@ Require actual ready status, completed visual review, black-point permission,
 no errors, and canonical FITS SHA equal to the selected candidate SHA.
 
 Then stop before black point.
+
+## Installed GHS skill-name routing
+
+The installed GHS skills are:
+
+```text
+pass 1: siril-ghs-stretch
+pass 2: siril-ghs-stretch-pass2
+```
+
+Therefore this pass-2 skill follows the installed `siril-ghs-stretch` skill.
+If older evidence calls pass 1 `siril-ghs-stretch-pass1`, treat that string as
+a compatibility stage label, not as a separate installed skill.
+
+## GHS pass-1 v1.3.2 visual-evidence gate
+
+Before any pass-2 processing, require:
+
+```text
+processing/ghs-pass1/visual-selection-record-v1.3.2.json
+```
+
+The record must identify orchestration version 1.3.2, processing engine 1.3.1,
+`visual_review_completed: true`, `review_method: openclaw-read`, and
+`ghs_pass2_processing_permitted: true`. Its `canonical_output_sha256` must
+match the current `processing/ghs-pass1/SHO-starless-ghs-pass1.fit`.
+
+If the record is absent, stale or mismatched, STOP. Do not run pass 2 even if
+an older pass-1 manifest says pass 2 is permitted.
