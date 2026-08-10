@@ -1,80 +1,96 @@
 ---
 name: siril-sho-channel-balance
-description: "Stage-only bounded PixelMath colour balancing of the reviewed StarNet STARLESS SHO image before GHS. Never touch the star layer, rerun StarNet, or invoke AstroProcessor."
+description: "Autonomously balance the reviewed StarNet STARLESS SHO image with bounded Siril PixelMath refinement, exact-path visual review, and preservation-safe publication."
 user-invocable: true
 metadata: {"openclaw":{"os":["linux"]}}
 ---
 
-# Siril SHO Channel Balance 1.1.0 — native post-StarNet starless contract
+# Siril SHO Channel Balance
 
-Use exactly:
+Orchestration version: **1.2.0**
 
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-sho-channel-balance/bin/sho-channel-balance
-```
+Processing engine version: **1.1.0** (unchanged)
 
-Normal request:
+Upstream StarNet contract:
 
 ```text
-Process M16 July 2026 with SHO channel balance.
+native-starnet-channel-balance-v1
 ```
 
-## Stage-only routing contract — highest priority
+Downstream GHS source contract:
 
-This is a single existing-project stage request. Canonical projects root:
+```text
+post-starnet-channel-balance-v1
+```
+
+## Pipeline
+
+```text
+siril-starnet-removal
+→ siril-sho-channel-balance
+→ siril-ghs-stretch
+```
+
+This stage processes only the **STARLESS** image. It never modifies or
+regenerates the StarNet starmask or unscreen-stars layer.
+
+## Normal one-line entry
+
+For:
+
+```text
+Process <project> with SHO channel balance.
+```
+
+use exactly:
+
+```text
+/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-sho-channel-balance/bin/sho-channel-balance advance --project "<project>"
+```
+
+Do not discover the project, helper, Python, run root or review files.
+
+Never use `ls`, `find`, `tree`, `cat`, `grep`, `jq`, globbing, AstroProcessor,
+ASIAIR inspection or source-code inspection to route this stage.
+
+Canonical projects root:
 
 ```text
 /home/peter/.openclaw/workspace/agents/codewarrior/Projects
 ```
 
-Never invoke AstroProcessor or invoke `astroproc` for any reason. Never inspect `/mnt/asiair`, create/import/prepare a project, or rediscover the project in another root. Never use `ls`, `find`, `cat`, `grep`, `jq`, globbing, or manual run-root discovery as review-file recovery.
+## Completed or obsolete canonical result
 
-Do **not** use or inspect:
+A canonical channel-balance result is still a completed result even when it
+has become obsolete because the upstream StarNet result changed.
 
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/Projects
-```
+`advance` must return a user confirmation gate before any fresh replacement.
 
-## Correct pipeline placement
-
-```text
-siril-sho-combination
-→ siril-background-neutralization
-→ siril-starnet-removal
-→ siril-sho-channel-balance
-→ siril-ghs-stretch
-```
-
-**This stage processes only the StarNet STARLESS image. It never modifies the starmask or stars/unscreen layer.** This placement exists specifically so nebular colour balancing cannot turn the preserved stars magenta/purple.
-
-StarNet 1.5.2 must use source-contract revision `native-starnet-channel-balance-v1` and point directly to `siril-sho-channel-balance`. The former direct-StarNet-to-GHS compatibility bridge is no longer accepted.
-
-## Required source
+After the user explicitly answers yes:
 
 ```text
-processing/starnet/SHO-starless-linear.fit
-processing/starnet/starnet-manifest.json
-processing/starnet/visual-review-record.json
+.../bin/sho-channel-balance confirm-fresh --project "<project>"
+.../bin/sho-channel-balance advance --project "<project>"
 ```
 
-Require StarNet helper 1.5.2, source-contract revision `native-starnet-channel-balance-v1`, ready status, completed visual review, finite BITPIX -32 RGB starless FITS, exact source/review checksums, `next_stage: siril-sho-channel-balance`, `sho_channel_balance_permitted: true`, and `ghs_pass1_permitted: false`.
+The existing canonical output is preserved until successful publication.
 
-Never process:
+The confirmation binds the fresh authorization to strong hashes of:
 
-```text
-processing/starnet/SHO-starmask.fit
-processing/starnet/SHO-stars-unscreen.fit
-```
+- the current native StarNet starless source;
+- the current StarNet manifest/review;
+- the existing channel-balance output;
+- the existing channel-balance manifest.
 
-## Starless PixelMath
+Before confirmation, completed-stage detection is manifest-first and does not
+hash the large FITS files.
 
-The post-StarNet RGB channels retain SHO semantics: R is SII-derived, G is Ha-derived, B is OIII-derived. Apply:
+Once fresh confirmation is given, **no further normal user interaction is
+allowed**. CodeWarrior must finish candidate refinement, final selection and
+publication autonomously unless there is a real processing/contract blocker or
+an exact Read fails.
 
-```text
-R' = med(R) + r * (R - med(R))
-G' = med(R) + g * (G - med(G))
-B' = med(R) + b * (B - med(B))
-```
+## PixelMath processing policy
 
 Baseline:
 
@@ -84,21 +100,37 @@ g = 0.25
 b = 1.00
 ```
 
-This is the starless equivalent of the successful manual M16 formula. Siril PixelMath runs with result rescaling OFF and RGB recomposition with `-nosum`.
-
-## Bounded adaptive policy
-
-Maximum attempts: 5, stop early when balanced.
+Generalized STARLESS form:
 
 ```text
-r: 0.70–1.30, max step 0.15
-g: 0.15–0.40, max step 0.05
-b: 0.70–1.30, max step 0.15
+R = med(R) + r * (R - med(R))
+G = med(R) + g * (G - med(G))
+B = med(R) + b * (B - med(B))
 ```
 
-Only one coefficient changes per attempt. CodeWarrior classifies one dominant problem; the helper calculates the bounded numeric move. Immediate reversal requires explicit overshoot evidence.
+Bounds:
 
-Allowed problems:
+```text
+0.70 <= r <= 1.30
+0.15 <= g <= 0.40
+0.70 <= b <= 1.30
+```
+
+Maximum step per attempt:
+
+```text
+r: 0.15
+g: 0.05
+b: 0.15
+```
+
+Maximum attempts: **5**.
+
+Only one coefficient changes between attempts. CodeWarrior never invents
+numeric coefficients; the unchanged v1.1.0 engine chooses the next bounded
+coefficient from the visual classification.
+
+Allowed dominant problems:
 
 ```text
 excessive_green
@@ -112,25 +144,89 @@ balanced
 no_improvement
 ```
 
-`magenta_cast` here means **magenta/purple in the starless nebula/background**, not star colour.
+A reversal of the previous coefficient movement requires visible overshoot and
+`--overshoot-observed`.
 
-## Routine workflow
+## Autonomous iterative visual review
 
-Start/resume only with:
+When the wrapper returns:
 
 ```text
-sho-channel-balance advance --project "<project>"
+status: visual_review_required
+action: continue_autonomously_review_refine
 ```
 
-For every `visual_review_required`, pass each `read_targets[].path` verbatim to OpenClaw Read. Both source and candidate are starless. Review green, magenta/purple nebular over-correction, SII-derived red/gold, OIII-derived blue/cyan, faint outer emission/Pillars/dark lanes, and weak-channel noise.
+this is an internal continuation point, not a user handoff.
 
-Then call `review-refine` with all six specific review notes. On `selection_review_required`, Read every returned target again and choose the best reviewed starless candidate, not necessarily the last. Structured per-candidate `balance`, `magenta`, `structure`, and `noise` notes remain mandatory.
+Use OpenClaw **Read** on every returned `read_targets[].path` exactly as
+returned.
 
-## Existing v1.0.1 result migration
+On attempt 1 the wrapper returns:
 
-The existing pre-StarNet v1.0.1 canonical result is **obsolete for the new pipeline but is a recognized migration predecessor**. Do not delete it. v1.1.0 may start a new starless run while leaving that canonical directory untouched. On successful publication the old directory is preserved beneath the new run.
+- the STARLESS source preview;
+- candidate-01.
 
-Once a valid v1.1.0 result exists, repeating the stage requires normal fresh-run confirmation.
+The source is read once. On later attempts, only the newly generated candidate
+preview is returned because the source has not changed.
+
+Do not:
+
+```text
+ls/find the review directory
+emit MEDIA: paths
+attach review images to the user
+ask the user what dominant problem they see
+ask the user whether to continue
+choose numeric coefficients
+```
+
+For each candidate autonomously record specific observations for:
+
+- green dominance/residual green;
+- magenta/purple over-correction;
+- SII-derived red/gold structure;
+- OIII-derived blue/cyan structure;
+- faint outer emission, Pillars and dark lanes;
+- weak-channel noise amplification.
+
+Each review note must contain at least 40 characters of specific visual
+evidence.
+
+Then invoke the exact `review-refine` command template returned by the wrapper.
+
+Repeat until the wrapper returns `selection_review_required`.
+
+## Autonomous final selection
+
+Every generated candidate has already been visually reviewed by the time final
+selection begins. v1.2.0 therefore does **not** require rereading the source
+and all candidates again.
+
+Use the accumulated visual reviews and technical summaries.
+
+Choose the best acceptable candidate, not automatically the latest one.
+When two candidates are materially equivalent, prefer the less aggressive
+coefficient change.
+
+Do not force SHO nebulosity to neutral grey. SHO colour is synthetic.
+
+Do not evaluate star colour. The star layer is outside this stage.
+
+Selection notes must cover every generated candidate:
+
+```text
+candidate-NN=balance:<40+ chars>; magenta:<40+ chars>; structure:<40+ chars>; noise:<40+ chars>
+```
+
+Overall visual comparison must contain at least 80 characters.
+
+The orchestration layer safely normalizes embedded semicolons before calling
+the unchanged v1.1.0 engine and rejects identical boilerplate candidate notes.
+
+Then invoke `select-publish` autonomously.
+
+If publication rejects only review formatting, repair the payload and retry
+publication without rerunning Siril or generating new candidates.
 
 ## Canonical outputs
 
@@ -139,10 +235,11 @@ processing/sho-channel-balance/
 ├── SHO-starless-linear-balanced.fit
 ├── SHO-starless-linear-before-channel-balance.png
 ├── SHO-starless-linear-balanced.png
-└── sho-channel-balance-manifest.json
+├── sho-channel-balance-manifest.json
+└── orchestration-review-v1.2.0.json
 ```
 
-Successful completion reports:
+A successful publication must report:
 
 ```text
 status: ready
@@ -152,20 +249,19 @@ next_stage: siril-ghs-stretch-pass1
 ghs_pass1_permitted: true
 background_neutralization_permitted: false
 star_removal_permitted: false
+source_contract_revision: post-starnet-channel-balance-v1
 ```
 
 Stop before GHS pass 1.
 
-## Installed GHS skill-name routing
+## Important boundaries
 
-The actual installed GHS skill names are:
+Never alter:
 
 ```text
-pass 1: siril-ghs-stretch
-pass 2: siril-ghs-stretch-pass2
+processing/starnet/SHO-starmask.fit
+processing/starnet/SHO-stars-unscreen.fit
 ```
 
-For compatibility, existing helper/manifests may still expose the logical stage
-label `siril-ghs-stretch-pass1`. Treat that label as an alias for the installed
-`siril-ghs-stretch` skill. Do not search for or create a
-`siril-ghs-stretch-pass1` skill directory.
+Do not run StarNet, background neutralization, GHS, green reduction,
+saturation, star recomposition or later stages.

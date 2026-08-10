@@ -5,13 +5,12 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-VERSION = "1.3.3"
+VERSION = "1.3.2"
 PROCESSING_ENGINE_VERSION = "1.3.1"
 
 WORKSPACE = Path("/home/peter/.openclaw/workspace/agents/codewarrior")
@@ -133,8 +132,7 @@ def canonical_snapshot(project_name: str) -> dict[str, Any]:
         try:
             review = load_json(p["review_record"])
             review_ok = (
-                review.get("orchestration_version") == "1.3.2"
-                and review.get("publication_orchestration_version") in (None, VERSION)
+                review.get("orchestration_version") == VERSION
                 and review.get("processing_engine_version") == PROCESSING_ENGINE_VERSION
                 and review.get("canonical_output_sha256") == output_sha
                 and review.get("visual_review_completed") is True
@@ -311,25 +309,12 @@ def load_active(project_name: str) -> tuple[dict[str, Path], dict[str, Any]] | N
     if not p["active"].is_file():
         return None
     s = load_json(p["active"])
-    state_version = s.get("orchestration_version")
-    if state_version not in {"1.3.2", VERSION}:
-        raise OrchestrationError(
-            f"Active GHS orchestration state uses unsupported version {state_version!r}."
-        )
+    if s.get("orchestration_version") != VERSION:
+        raise OrchestrationError("Active GHS orchestration state uses another version.")
     if s.get("status") != "awaiting_visual_selection":
         raise OrchestrationError(f"Unexpected active GHS state: {s.get('status')!r}")
     if s.get("source_sha256") != sha256_file(p["source"]):
         raise OrchestrationError("Balanced starless source changed during active GHS run.")
-    if state_version == "1.3.2":
-        # Preserve and resume the already-generated v1.3.2 candidate run instead of
-        # rerunning Siril/GHS. This migration changes only orchestration state.
-        s["migrated_from_orchestration_version"] = "1.3.2"
-        s["orchestration_version"] = VERSION
-        s["migrated_at"] = utc_now()
-        s.setdefault("publication_format_failures", 0)
-        write_json_atomic(p["active"], s)
-    else:
-        s.setdefault("publication_format_failures", 0)
     return p, s
 
 
@@ -342,7 +327,6 @@ def review_plan(state: dict[str, Any]) -> dict[str, Any]:
         "sha256": first["before_preview_sha256"],
     }]
     summaries = []
-    note_templates = []
     for name in eligible:
         c = state["candidates"][name]
         targets.append({
@@ -358,16 +342,9 @@ def review_plan(state: dict[str, Any]) -> dict[str, Any]:
             "output_luma_p99": c.get("output_luma_p99"),
             "recommended": name == state.get("recommended_candidate"),
         })
-        note_templates.append(
-            f'--note "{name}=stretch:<specific visual observation>; '
-            'structure:<specific faint nebula/Pillars/dark-lanes observation>; '
-            'color:<specific SHO colour observation>; '
-            'noise:<specific noise/grain observation>; '
-            'highlights:<specific highlight/clipping observation>"'
-        )
     return {
         "status": "visual_review_required",
-        "action": "continue_autonomously_to_publication",
+        "action": "read_all_exact_targets_then_select_publish",
         "orchestration_version": VERSION,
         "processing_engine_version": PROCESSING_ENGINE_VERSION,
         "project_name": state["project_name"],
@@ -395,30 +372,6 @@ def review_plan(state: dict[str, Any]) -> dict[str, Any]:
             "highlights:<specific observation>"
         ),
         "required_candidate_note_fields": list(REVIEW_FIELDS),
-        "publication_contract": {
-            "candidate_notes_belong_in": "repeated --note arguments",
-            "candidate_notes_do_not_belong_in": "--visual-notes",
-            "visual_notes": "optional; when omitted the orchestrator derives the overall comparison from the candidate notes",
-            "publication_format_retry_budget": 3,
-            "on_format_error": "repair only the publication payload; do not rerun GHS and do not reread images",
-            "on_retry_budget_exhausted": "stop and report the exact contract error",
-        },
-        "select_publish_command_template": {
-            "command": (
-                "/home/peter/.openclaw/workspace/agents/codewarrior/skills/"
-                "siril-ghs-stretch/bin/ghs-stretch select-publish"
-            ),
-            "required": [
-                '--project "<project>"',
-                '--candidate "<selected candidate>"',
-                *note_templates,
-            ],
-            "optional": [
-                '--visual-notes "<overall comparison; candidate notes must NOT be placed here>"'
-            ],
-        },
-        "resume_without_reprocessing": bool(state.get("migrated_from_orchestration_version")),
-        "publication_format_failures": int(state.get("publication_format_failures", 0)),
         "ghs_pass2_processing_permitted": False,
     }
 
@@ -458,16 +411,11 @@ def advance(project_name: str) -> dict[str, Any]:
 def parse_candidate_notes(values: list[str], eligible: list[str]) -> dict[str, dict[str, str]]:
     expected = set(eligible)
     result: dict[str, dict[str, str]] = {}
-    boundary = re.compile(
-        r";\s*(?=(?:stretch|structure|color|noise|highlights)\s*:)",
-        flags=re.IGNORECASE,
-    )
     for raw in values:
         if "=" not in raw:
             raise OrchestrationError(
                 "Each --note must use candidate-NN=stretch:<...>; structure:<...>; "
-                "color:<...>; noise:<...>; highlights:<...>. Candidate notes belong "
-                "in repeated --note arguments, not inside --visual-notes."
+                "color:<...>; noise:<...>; highlights:<...>."
             )
         candidate, body = raw.split("=", 1)
         candidate = candidate.strip()
@@ -478,14 +426,12 @@ def parse_candidate_notes(values: list[str], eligible: list[str]) -> dict[str, d
         if candidate in result:
             raise OrchestrationError(f"Duplicate note for {candidate}.")
         fields: dict[str, str] = {}
-        for piece in [p.strip() for p in boundary.split(body) if p.strip()]:
+        for piece in [p.strip() for p in body.split(";") if p.strip()]:
             if ":" not in piece:
                 raise OrchestrationError(f"{candidate} has an unlabeled visual-note field.")
             key, value = piece.split(":", 1)
             key = key.strip().lower()
             value = " ".join(value.split())
-            if key not in REVIEW_FIELDS:
-                raise OrchestrationError(f"{candidate} contains unknown field {key!r}.")
             if key in fields:
                 raise OrchestrationError(f"{candidate} repeats field {key!r}.")
             fields[key] = value
@@ -509,33 +455,13 @@ def parse_candidate_notes(values: list[str], eligible: list[str]) -> dict[str, d
         result[candidate] = fields
     if set(result) != expected:
         raise OrchestrationError(
-            "Visual notes must cover every eligible candidate exactly using repeated --note arguments. "
+            f"Visual notes must cover every eligible candidate exactly. "
             f"Expected {sorted(expected)}, got {sorted(result)}."
         )
-    combined = [" | ".join(result[name][key] for key in REVIEW_FIELDS) for name in sorted(result)]
-    if len(combined) > 1 and len(set(combined)) == 1:
-        raise OrchestrationError("Candidate notes must be candidate-specific; identical boilerplate is not allowed.")
     return result
 
 
-def derive_visual_notes(candidate: str, notes: dict[str, dict[str, str]], eligible: list[str]) -> str:
-    selected = notes[candidate]
-    pieces = [
-        f"Selected {candidate} after visually comparing every publication-eligible GHS pass-1 candidate.",
-        f"Its stretch assessment was: {selected['stretch']}",
-        f"Its structure assessment was: {selected['structure']}",
-        f"Its SHO colour assessment was: {selected['color']}",
-    ]
-    others = [name for name in eligible if name != candidate]
-    if others:
-        pieces.append(
-            "Other reviewed candidates were not selected after comparing their stretch, "
-            "structure, colour, noise and highlight behavior: " + ", ".join(others) + "."
-        )
-    return " ".join(pieces)
-
-
-def select_publish(project_name: str, candidate: str, visual_notes: str | None, note_values: list[str]) -> dict[str, Any]:
+def select_publish(project_name: str, candidate: str, visual_notes: str, note_values: list[str]) -> dict[str, Any]:
     active = load_active(project_name)
     if active is None:
         raise OrchestrationError("No active GHS pass-1 run is awaiting visual selection.")
@@ -543,35 +469,10 @@ def select_publish(project_name: str, candidate: str, visual_notes: str | None, 
     eligible = state["publication_eligible_candidates"]
     if candidate not in eligible:
         raise OrchestrationError(f"Selected candidate {candidate!r} is not eligible: {eligible}")
-
-    try:
-        notes = parse_candidate_notes(note_values, eligible)
-        if visual_notes is None or not visual_notes.strip():
-            visual_notes = derive_visual_notes(candidate, notes, eligible)
-        else:
-            visual_notes = " ".join(visual_notes.split())
-            if len(visual_notes) < 40:
-                raise OrchestrationError(
-                    "Overall --visual-notes are too vague; omit --visual-notes to let the "
-                    "orchestrator derive the comparison from the candidate notes, or provide "
-                    "a real overall visual comparison."
-                )
-    except OrchestrationError as exc:
-        failures = int(state.get("publication_format_failures", 0)) + 1
-        state["publication_format_failures"] = failures
-        state["last_publication_format_error"] = str(exc)
-        state["last_publication_format_error_at"] = utc_now()
-        write_json_atomic(p["active"], state)
-        if failures >= 3:
-            raise OrchestrationError(
-                f"Publication review payload retry budget exhausted ({failures}/3). "
-                f"Stop and report this exact contract error without rerunning GHS or rereading images: {exc}"
-            ) from exc
-        raise OrchestrationError(
-            f"Publication review payload rejected ({failures}/3): {exc} "
-            "Repair only the select-publish payload using the returned command template; "
-            "do not rerun GHS and do not reread images."
-        ) from exc
+    visual_notes = " ".join(visual_notes.split())
+    if len(visual_notes) < 40:
+        raise OrchestrationError("Overall --visual-notes are too vague; provide a real visual comparison.")
+    notes = parse_candidate_notes(note_values, eligible)
 
     reviewed = []
     first = state["candidates"][eligible[0]]
@@ -613,14 +514,9 @@ def select_publish(project_name: str, candidate: str, visual_notes: str | None, 
     if m.get("source", {}).get("sha256") != state.get("source_sha256"):
         raise OrchestrationError("Published source differs from reviewed run source.")
 
-    # Keep the v1.3.2 compatibility record filename and contract version because
-    # the already-installed pass-2 gate explicitly requires them. Record the
-    # actual publication orchestration separately.
     record = {
         "schema_version": 1,
-        "orchestration_version": "1.3.2",
-        "publication_orchestration_version": VERSION,
-        "review_contract_revision": "ghs-pass1-publication-v1.3.3",
+        "orchestration_version": VERSION,
         "processing_engine_version": PROCESSING_ENGINE_VERSION,
         "recorded_at": utc_now(),
         "project_name": project_name,
@@ -652,14 +548,13 @@ def select_publish(project_name: str, candidate: str, visual_notes: str | None, 
     state["canonical_output_changed"] = True
     state["canonical_output_sha256"] = output_sha
     state["visual_selection_record"] = str(p["review_record"])
-    state["publication_format_failures"] = int(state.get("publication_format_failures", 0))
     p["completed"].mkdir(parents=True, exist_ok=True)
     write_json_atomic(p["completed"] / f"completed-{stamp()}.json", state)
     os.replace(p["active"], p["completed"] / f"active-consumed-{stamp()}.json")
 
     verification = canonical_snapshot(project_name)
     if verification.get("status") != "ready":
-        raise OrchestrationError(f"Post-publication v1.3.3 verification failed: {verification}")
+        raise OrchestrationError(f"Post-publication v1.3.2 verification failed: {verification}")
 
     return {
         "status": "ready",
@@ -672,8 +567,6 @@ def select_publish(project_name: str, candidate: str, visual_notes: str | None, 
         "canonical_output_sha256": output_sha,
         "visual_review_completed": True,
         "visual_selection_record": str(p["review_record"]),
-        "visual_selection_record_contract_version": "1.3.2",
-        "publication_orchestration_version": VERSION,
         "next_stage": "siril-ghs-stretch-pass2",
         "ghs_pass2_processing_permitted": True,
         "engine_publication_completed": bool(engine_result.get("canonical_output_changed", True)),
@@ -714,10 +607,6 @@ def stage_status(project_name: str) -> dict[str, Any]:
         "selected_candidate": c.get("selected_candidate"),
         "review_record": c.get("review_record"),
         "review_record_v1_3_2_valid": c.get("review_record_v1_3_2_valid"),
-        "publication_orchestration_version": (
-            load_json(p["review_record"]).get("publication_orchestration_version")
-            if p["review_record"].is_file() else None
-        ),
         "ghs_pass2_processing_permitted": c.get("ghs_pass2_processing_permitted", False),
         "errors": c.get("errors", []),
     }
@@ -732,9 +621,6 @@ def self_test() -> dict[str, Any]:
     parsed = parse_candidate_notes(good, eligible)
     if set(parsed) != set(eligible):
         raise OrchestrationError("Structured note self-test failed.")
-    derived = derive_visual_notes("candidate-01", parsed, eligible)
-    if len(derived) < 80 or "candidate-02" not in derived:
-        raise OrchestrationError("Derived overall visual-notes self-test failed.")
     bad = [
         "candidate-01=stretch:looks good; structure:preserved; color:good; noise:low; highlights:fine",
         good[1],
@@ -747,24 +633,12 @@ def self_test() -> dict[str, Any]:
         vague_rejected = False
     if not vague_rejected:
         raise OrchestrationError("Vague notes were incorrectly accepted.")
-    semicolon_good = [
-        "candidate-01=stretch:background is lifted moderately; it remains suitable for a first pass; structure:faint outer nebula, Pillars and dark lanes remain clearly distinguishable; color:SHO gold and cyan colour separation remains natural and intact; noise:visible noise and grain remain controlled in the faint background; highlights:bright nebular highlights remain smooth with no clipped or harsh cores",
-        good[1],
-    ]
-    parse_candidate_notes(semicolon_good, eligible)
     return {
         "status": "success",
         "orchestration_version": VERSION,
         "processing_engine_version": PROCESSING_ENGINE_VERSION,
         "structured_notes_accepted": True,
         "vague_notes_rejected": True,
-        "semicolon_safe_candidate_notes": True,
-        "derived_overall_visual_notes": True,
-        "visual_notes_optional_for_normal_publication": True,
-        "candidate_notes_use_repeated_note_arguments": True,
-        "publication_format_retry_budget": 3,
-        "active_v1_3_2_run_migration_supported": True,
-        "pass2_v1_3_2_record_compatibility_preserved": True,
         "required_fields": list(REVIEW_FIELDS),
         "completed_stage_requires_confirmation": True,
         "exact_read_targets_required": True,
@@ -772,7 +646,7 @@ def self_test() -> dict[str, Any]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="GHS pass-1 v1.3.3 resumable autonomous publication wrapper.")
+    p = argparse.ArgumentParser(description="GHS pass-1 v1.3.2 orchestration/enforcement wrapper.")
     p.add_argument("--version", action="version", version=VERSION)
     sub = p.add_subparsers(dest="command", required=True)
     a = sub.add_parser("advance"); a.add_argument("--project", required=True)
@@ -780,8 +654,8 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("select-publish")
     s.add_argument("--project", required=True)
     s.add_argument("--candidate", required=True)
-    s.add_argument("--visual-notes", required=False, default=None)
-    s.add_argument("--note", action="append", default=[], required=True)
+    s.add_argument("--visual-notes", required=True)
+    s.add_argument("--note", action="append", default=[])
     t = sub.add_parser("stage-status"); t.add_argument("--project", required=True)
     sub.add_parser("self-test")
     return p

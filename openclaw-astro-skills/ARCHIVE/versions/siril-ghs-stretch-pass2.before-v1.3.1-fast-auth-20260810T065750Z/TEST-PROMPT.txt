@@ -1,0 +1,46 @@
+Verify the installed `siril-ghs-stretch-pass2` skill without
+publishing or changing M16.
+
+Use:
+
+/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/.venv/bin/python
+
+Helper:
+
+/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-ghs-stretch-pass2/scripts/ghs_pass2.py
+
+1. Verify `--version` prints exactly 1.0.0.
+
+2. Run:
+
+self-test --timeout 1800
+
+Require:
+- status: success
+- Siril 1.4.4
+- three real GHT candidates
+- three inverse-GHT roundtrips
+- finite 32-bit RGB FITS
+- no missing previews
+- parameter bounds enforced
+- publication-policy self-test successful
+
+3. Run:
+
+status --project "M16 July 2026"
+
+Because pass 2 has not been published yet, require:
+
+status: missing
+black_point_processing_permitted: false
+
+4. Verify, read-only, that the upstream canonical pass-1 source is still:
+
+processing/ghs-pass1/SHO-starless-ghs-pass1.fit
+
+with SHA-256:
+
+f03d50e2bc94cbaaa929fb5c40ca2a91a99e152ffc8d74fb0a1645a311119b78
+
+Do not execute `run` or `publish`.
+Do not perform black-point adjustment.

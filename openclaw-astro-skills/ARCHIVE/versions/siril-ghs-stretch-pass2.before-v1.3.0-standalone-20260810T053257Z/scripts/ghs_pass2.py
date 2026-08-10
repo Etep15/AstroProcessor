@@ -711,7 +711,7 @@ def validate_source(paths: dict[str, Path]) -> tuple[dict[str, Any], FitsEvidenc
     }:
         # Pass-1 1.3.1 uses upstream StarNet, current pass1, downstream pass2.
         expected = {
-            "upstream": "siril-sho-channel-balance",
+            "upstream": "siril-starnet-removal",
             "current": "siril-ghs-stretch-pass1",
             "downstream": "siril-ghs-stretch-pass2",
         }
@@ -2710,18 +2710,11 @@ def status_project(workspace: Path, project_name: str) -> dict[str, Any]:
     except Exception as exc:
         errors.append(str(exc))
 
-    private_obsolete_bridge = (
-        __import__('os').environ.get('GHS_PASS2_OBSOLETE_AUTHORIZED') == '1'
-        and manifest.get('status') == 'ready'
-        and paths['stable_output'].is_file()
-        and sha256_file(paths['stable_output']) == (manifest.get('output') or {}).get('sha256')
-        and 'GHS pass-2 source checksum changed.' in errors
-        and set(errors).issubset({
-            'GHS pass-2 source checksum changed.',
-            'GHS pass-2 manifest checksum changed.',
-        })
+    ready = (
+        manifest.get("status") == "ready"
+        and not errors
+        and manifest.get("black_point_processing_permitted") is True
     )
-    ready = (manifest.get('status') == 'ready' and (not errors) and (manifest.get('black_point_processing_permitted') is True)) or private_obsolete_bridge
     return {
         "status": "ready" if ready else "invalid",
         "helper_version": VERSION,

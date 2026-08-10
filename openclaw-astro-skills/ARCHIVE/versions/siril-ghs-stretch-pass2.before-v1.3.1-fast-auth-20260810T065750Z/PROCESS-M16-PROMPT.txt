@@ -1,0 +1,100 @@
+Use installed `siril-ghs-stretch-pass2` helper 1.0.0 to
+perform GHS pass 2 for:
+
+M16 July 2026
+
+Helper:
+
+/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-ghs-stretch-pass2/scripts/ghs_pass2.py
+
+Python:
+
+/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/.venv/bin/python
+
+## Preflight
+
+Verify helper 1.0.0.
+
+Verify upstream pass-1 status and manifest:
+- helper 1.3.1
+- status ready
+- visual_review_completed true
+- ghs_pass2_processing_permitted true
+- next_stage siril-ghs-stretch-pass2
+
+Source must be exactly:
+
+/home/peter/.openclaw/workspace/agents/codewarrior/Projects/M16 July 2026/processing/ghs-pass1/SHO-starless-ghs-pass1.fit
+
+Expected SHA-256:
+
+f03d50e2bc94cbaaa929fb5c40ca2a91a99e152ffc8d74fb0a1645a311119b78
+
+Record RUN_START_UTC and RUN_START_EPOCH.
+
+## Generate
+
+Run:
+
+/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/.venv/bin/python \
+  /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-ghs-stretch-pass2/scripts/ghs_pass2.py \
+  run --project "M16 July 2026" --fresh-run --max-candidates 3 --timeout 7200
+
+Report each candidate's:
+- parameters
+- adaptation reason
+- classification
+- median/p90/p99
+- output maximum
+- clipping
+- luminance correlation
+- roundtrip metrics
+- selection score
+- permanent preview path
+
+Target:
+- preferred median 0.180
+- balanced 0.135–0.225
+- p99 <= 0.80
+- max <= 0.97
+- zero clipping
+
+## Hard stop
+
+If publication_permitted is false:
+STOP.
+Do not publish.
+Do not perform black point.
+
+## Visual review
+
+CodeWarrior must open every publication-eligible pass-2 preview.
+
+Compare:
+- faint emission visibility
+- Pillars and dark lane preservation
+- background depth
+- highlight protection
+- absence of flattening/clipping/ringing/seams/corruption
+- headroom for later black-point and color work
+
+Do not ask Peter or ChatGPT to choose.
+
+## Publish
+
+Publish exactly one eligible candidate with specific visual notes and
+`--fresh-run`.
+
+## Verify
+
+Require:
+
+helper_version: 1.0.0
+status: ready
+visual_review_completed: true
+next_stage: siril-black-point
+black_point_processing_permitted: true
+
+Verify canonical output SHA and timestamps >= RUN_START_EPOCH.
+
+Stop. Do not perform black-point adjustment yet.

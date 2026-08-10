@@ -7,7 +7,7 @@ metadata: {"openclaw":{"os":["linux"]}}
 
 # Siril GHS Stretch — pass 2
 
-Standalone orchestration version: **1.3.2**
+Standalone orchestration version: **1.3.1**
 
 Processing helper version: **1.2.0**.
 
@@ -79,7 +79,7 @@ A still-valid v1.3.0 authorization is migrated rather than asking the user to
 confirm again.
 
 The helper 1.2.0 also has its own durable `stage-intents` confirmation system.
-Version 1.3.2 retains the same native authorization sequence introduced in 1.3.1:
+Version 1.3.1 deliberately uses the same native sequence that previously worked:
 
 ```text
 helper begin
@@ -96,7 +96,7 @@ marker:
 GHS_PASS2_OBSOLETE_AUTHORIZED=1
 ```
 
-The marker stays internal to the standalone orchestrator. Keeping it on the authorized
+The marker stays internal to the v1.3.1 orchestrator. Keeping it on the authorized
 `run` call preserves the same helper-native completed-canonical view under which
 `begin` created and `confirm-fresh` authorized the durable intent. It does not bypass
 that intent: candidate generation still requires the helper's native authorization.
@@ -150,30 +150,6 @@ When `advance` returns `visual_review_required`:
 Review second-pass stretch strength, faint Eagle Nebula emission, Pillars and
 dark lanes, SHO colour integrity, background/noise, clipping/compression,
 artifacts, and highlight headroom.
-
-## Run-manifest contract — v1.3.2
-
-The helper-generated **run directory** contains its durable run record at the
-exact fixed name:
-
-```text
-<run_root>/run-manifest.json
-```
-
-`select-publish` must load that exact file. It must never look for
-`ghs-pass2-manifest.json` inside a run root, and it must never use `ls`, `find`,
-directory discovery, or a compatibility symlink to recover the run manifest.
-
-This is intentionally distinct from the **published canonical manifest**:
-
-```text
-<project>/processing/ghs-pass2/ghs-pass2-manifest.json
-```
-
-The canonical manifest name is unchanged. Version 1.3.2 changes no GHS math,
-candidate generation, fresh authorization, visual-review policy, or publication
-products. The `.siril-ghs-stretch-pass2-v1.3.1` standalone state directory is
-also retained for durable authorization continuity.
 
 ## Publication
 
