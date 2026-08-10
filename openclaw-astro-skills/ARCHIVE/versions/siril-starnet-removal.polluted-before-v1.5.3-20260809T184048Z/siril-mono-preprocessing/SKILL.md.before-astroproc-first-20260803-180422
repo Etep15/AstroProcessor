@@ -1,0 +1,369 @@
+---
+name: siril-mono-preprocessing
+description: "Run Siril's Mono_Preprocessing.ssf for prepared Ha, SII, and OIII filter folders and verify each stacked result."
+user-invocable: true
+metadata: {"openclaw":{"os":["linux"]}}
+---
+
+# Siril Mono Preprocessing
+
+Use this skill to calibrate, register, and stack monochrome filter data that has
+already been prepared by AstroProcessor.
+
+This skill runs Siril's official built-in:
+
+    Mono_Preprocessing.ssf
+
+It may process one requested filter or all prepared filters in a project.
+
+This skill ends after verified monochrome stack files have been created. It
+does not align the Ha, SII, and OIII masters with each other, combine SHO
+channels, remove stars, stretch images, or perform later processing.
+
+# Supporting skill
+
+This skill requires `siril-cli-runner`.
+
+Before the first Siril operation:
+
+1. Locate `siril-cli-runner` in the available skills.
+2. Read its current `SKILL.md`.
+3. Follow its execution, logging, timeout, source-protection, output-validation,
+   and failure-handling rules.
+4. Use it for every Siril run.
+5. Do not invoke Siril through a different procedure.
+
+If `siril-cli-runner` is unavailable, stop and report the missing skill.
+
+# Workspace-relative project locations
+
+This skill must find projects in the root workspace of the OpenClaw agent that
+owns this installed skill.
+
+OpenClaw provides the installed skill path in the available-skills list. It
+should have this form:
+
+    <agent workspace>/skills/siril-mono-preprocessing/SKILL.md
+
+Derive the workspace root as follows:
+
+1. Start with the installed `SKILL.md` path.
+2. Its parent is the `siril-mono-preprocessing` skill directory.
+3. The next parent is the `skills` directory.
+4. The parent of `skills` is the owning agent's workspace root.
+
+Then use:
+
+    Projects root:    <agent workspace>/Projects
+    Calibration root: <agent workspace>/calibration
+
+For CodeWarrior, these resolve to:
+
+    Workspace root:
+    /home/peter/.openclaw/workspace/agents/codewarrior
+
+    Projects root:
+    /home/peter/.openclaw/workspace/agents/codewarrior/Projects
+
+    Calibration root:
+    /home/peter/.openclaw/workspace/agents/codewarrior/calibration
+
+A project's prepared filter folders are therefore expected at:
+
+    <agent workspace>/Projects/<project name>/processing/Ha
+    <agent workspace>/Projects/<project name>/processing/SII
+    <agent workspace>/Projects/<project name>/processing/OIII
+
+For example:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/Projects/M16 July 2026/processing/Ha
+
+Do not look for CodeWarrior's active projects under:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/Projects
+
+Do not hardcode CodeWarrior's workspace when this skill is installed for
+another agent. Derive that agent's workspace from the installed skill path.
+
+If the installed skill path is not beneath an agent workspace `skills`
+directory, stop and report that the workspace root could not be determined.
+
+Siril runtime root:
+
+    /home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root
+
+Expected built-in script:
+
+    /home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root/usr/share/siril/scripts/Mono_Preprocessing.ssf
+
+If the expected script is absent, search read-only for exactly
+`Mono_Preprocessing.ssf` under the Siril runtime root.
+
+- If exactly one copy is found, use it.
+- If none or more than one are found, stop and report the ambiguity.
+- Do not download, edit, or replace the built-in script.
+
+# Required input
+
+The user must provide or clearly imply:
+
+- the AstroProcessor project name
+- one filter or all prepared filters
+
+Example project:
+
+    M16 July 2026
+
+Supported filter names:
+
+- `Ha`
+- `SII`
+- `OIII`
+- `all`
+
+Normalize harmless filter spelling variants only for filter selection:
+
+- `H-alpha`, `Halpha`, or `Ha` -> `Ha`
+- `S2` or `SII` -> `SII`
+- `O3` or `OIII` -> `OIII`
+
+Do not rename project folders.
+
+# Important operating rules
+
+- Let the official Siril script perform calibration, registration, and stacking.
+- Do not reproduce the script's internal commands manually.
+- Do not edit `Mono_Preprocessing.ssf`.
+- Do not invent preprocessing parameters.
+- Do not run filters concurrently.
+- Do not delete source files, calibration files, links, process directories, or
+  failed outputs.
+- Do not overwrite an existing `result.fit`.
+- Do not remove an existing `process` directory automatically.
+- Do not continue after a failed requested filter unless the user explicitly
+  requested best-effort processing of the remaining filters.
+- Do not claim success because Siril exited successfully; verify the output.
+- Keep the resulting image linear.
+- Do not apply AutoStretch as a permanent operation.
+
+# What the official script expects
+
+Each filter working directory must expose these four entries:
+
+    lights
+    darks
+    flats
+    biases
+
+They may be real directories or symbolic links created by AstroProcessor.
+
+The working directory passed to Siril is the filter root itself, for example:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/Projects/M16 July 2026/processing/Ha
+
+Do not set the working directory to `lights`, `process`, or the project root.
+
+# Preflight for each filter
+
+Before running Siril:
+
+1. Resolve the project path under the workspace Projects root.
+2. Confirm that the project exists.
+3. Confirm that the requested filter directory exists.
+4. Confirm that `lights`, `darks`, `flats`, and `biases` exist.
+5. If an entry is a symbolic link, confirm that it resolves.
+6. Count FITS files visible through each entry.
+7. Accept `.fit`, `.fits`, and `.fts` case-insensitively.
+8. Require at least one readable FITS file in every required entry.
+9. Record the counts.
+10. Confirm that `result.fit`, `result.fits`, and `result.fts` do not already
+    exist in the filter root.
+11. Check whether a `process` entry already exists.
+12. If an existing result or process directory could make the run ambiguous,
+    stop and report it rather than deleting or reusing it.
+13. Confirm that `Mono_Preprocessing.ssf` exists.
+14. Confirm that the configured Siril command reports version 1.4.4.
+15. Record the exact working directory, script path, expected result, and
+    timeout.
+
+Do not reject a prepared directory merely because its entries are symbolic
+links. Verify their resolved targets and contents.
+
+# Execution request to siril-cli-runner
+
+For each filter, request one execution with:
+
+- stage: `mono-preprocessing-<filter>`
+- project root: the AstroProcessor project
+- working directory: the filter's `processing/<filter>` directory
+- script source: the verified built-in `Mono_Preprocessing.ssf`
+- expected output: `<filter working directory>/result.fit`
+- timeout: up to 3 hours
+- overwrite: forbidden
+- preview: requested after successful output validation
+
+The effective Siril operation is conceptually:
+
+    siril-cli --directory "<filter working directory>" \
+      --script "<Mono_Preprocessing.ssf>"
+
+The `siril-cli-runner` skill owns the exact AppRun command prefix and command
+execution details.
+
+# Output
+
+The official script's expected final stack is:
+
+    <filter working directory>/result.fit
+
+Examples:
+
+    .../processing/Ha/result.fit
+    .../processing/SII/result.fit
+    .../processing/OIII/result.fit
+
+Do not rename, move, or copy `result.fit` in this skill. A later master
+collection skill can publish standardized master filenames.
+
+# Verification after each filter
+
+A filter passes only when all of the following are true:
+
+1. Siril completed before the timeout.
+2. The process exit status is zero.
+3. The logs contain no fatal script error.
+4. A `result.fit`, `result.fits`, or `result.fts` file exists.
+5. The result file is non-empty.
+6. Siril can reopen the result.
+7. The result is a plausible single-channel image.
+8. Its dimensions are plausible for the input lights.
+9. No NaN or invalid-image error is reported.
+10. The original `lights`, `darks`, `flats`, and `biases` remain available.
+11. The runner's structured result record exists.
+12. A standardized non-destructive preview is available for inspection when
+    preview generation succeeds.
+
+Report warnings even when the stack validates.
+
+# Technical review
+
+After a successful stack, report available evidence from Siril's logs:
+
+- input frame counts
+- calibrated frame count
+- registered frame count
+- excluded or failed frames
+- stacking method used by the official script
+- total integration time when reported
+- result dimensions
+- warnings about calibration, registration, or stacking
+- output path
+- preview path
+- log path
+- runner result-record path
+
+Do not alter parameters or rerun automatically to make the result look better.
+This skill uses the fixed official script.
+
+If the output is valid but the logs or preview show a possible quality issue,
+return `needs_review` and describe the evidence. Parameterized reprocessing
+belongs in a separate future skill.
+
+# Processing all filters
+
+When the user requests all filters:
+
+1. Discover which of `Ha`, `SII`, and `OIII` exist under `processing`.
+2. Process them sequentially in this order:
+   - Ha
+   - SII
+   - OIII
+3. Run the full preflight separately for each filter.
+4. Use a separate runner attempt and log set for each filter.
+5. Stop on the first failure by default.
+6. Preserve successful earlier results.
+7. Do not rerun an already successful filter automatically.
+8. Report completed, failed, and unprocessed filters.
+
+Do not require a filter directory that is not present unless the user
+explicitly requested that filter.
+
+# Existing outputs
+
+If a result file already exists:
+
+- do not overwrite it
+- validate it read-only
+- report whether it appears usable
+- ask the user whether the existing result should be retained or manually moved
+  aside before another run
+
+If `process` already exists without a valid result:
+
+- do not delete it
+- report that the working directory contains an incomplete or previous run
+- stop and request review
+
+# Failure handling
+
+On failure:
+
+1. Stop the current filter.
+2. Preserve all files and logs.
+3. Report the first meaningful Siril error.
+4. Report the command exit status or timeout.
+5. Report whether a result file exists and whether it validates.
+6. Do not delete `process`.
+7. Do not delete a partial result.
+8. Do not retry automatically.
+9. Do not proceed to later image-processing stages.
+10. Return one of:
+    - `failed`
+    - `timed_out`
+    - `blocked`
+    - `needs_review`
+
+# Result report
+
+Return:
+
+- project name
+- project path
+- requested filters
+- completed filters
+- filter working directories
+- source counts for lights, darks, flats, and biases
+- exact built-in script path
+- Siril version
+- execution duration for each filter
+- output path for each filter
+- result dimensions
+- registered and rejected frame counts when reported
+- preview paths
+- log paths
+- runner result-record paths
+- warnings
+- blockers
+- next permitted stage
+
+The next permitted stage after all requested filters succeed is master
+collection and cross-filter alignment.
+
+# Short invocation examples
+
+Process all prepared filters:
+
+    Use the siril-mono-preprocessing skill to preprocess all filters in
+    "M16 July 2026".
+
+Process one filter:
+
+    Use the siril-mono-preprocessing skill to preprocess Ha in
+    "M16 July 2026".
+
+# Final rule
+
+Run only the official fixed Mono Preprocessing script through
+`siril-cli-runner`, verify each result file, and stop.
+
+Do not perform cross-filter alignment or any later image processing.

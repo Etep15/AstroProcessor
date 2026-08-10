@@ -1737,3 +1737,150 @@ Do not probe Python environments, inspect the skill directory, or invoke
 `scripts/ghs_stretch.py` directly. Pass 2 remains
 `siril-ghs-stretch-pass2` and must require the pass-1 v1.3.2 visual-selection
 record before processing.
+
+## StarNet v1.5.4 context-safe execution routing
+
+For:
+
+```text
+Process <project> with StarNet removal
+```
+
+route to `siril-starnet-removal` and execute exactly:
+
+```text
+/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-starnet-removal/bin/starnet-removal advance --project "<project>"
+```
+
+Do not inspect the StarNet skill directory, discover Python/helper paths, or
+invoke `scripts/starnet_workflow.py` directly.
+
+A completed StarNet stage must ask for fresh-run confirmation first. After
+explicit confirmation use `confirm-fresh`, then `advance`.
+
+When `visual_review_required` is returned, Read only the exact source/contact
+panel paths returned by the orchestrator. Do not recursively inspect candidate
+directories or helper source.
+
+Successful StarNet publication stops at `siril-sho-channel-balance`.
+
+<!-- OPENCLAW_NAMED_STAGE_FAST_PATH_V1_BEGIN -->
+## Named-stage fast path
+
+For a direct stage request of the form:
+
+```text
+Process <project> with <named stage>
+```
+
+do not discover the project or inspect its filesystem before invoking the
+canonical stage entrypoint. The stage wrapper owns project resolution, current
+status, obsolete/completed detection, resume state and fresh-run confirmation.
+
+For these known stages, the **first Exec tool call** must be the exact mapped
+entrypoint below. Do not precede it with `find`, `ls`, `ls -R`, `tree`, `grep`,
+`du`, project-directory inspection, alternate-root inspection, ASIAIR
+inspection, helper discovery, Python discovery, or source-code inspection.
+
+Canonical project root for stage wrappers:
+
+```text
+/home/peter/.openclaw/workspace/agents/codewarrior/Projects
+```
+
+Known direct routes:
+
+```text
+StarNet removal
+  /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-starnet-removal/bin/starnet-removal advance --project "<project>"
+
+SHO channel balance
+PixelMath channel balance
+  /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-sho-channel-balance/bin/sho-channel-balance advance --project "<project>"
+
+GHS stretch pass 1
+GHS pass 1
+  /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-ghs-stretch/bin/ghs-stretch advance --project "<project>"
+```
+
+A direct Read of the explicitly named stage `SKILL.md` is permitted when needed
+for semantic instructions, but it must not trigger project discovery. For a
+stage not in this fixed route table, Read the canonical `astro-processing`
+routing instructions directly; still do not search the filesystem for the
+project.
+
+If a wrapper reports `confirmation_required`, stop and ask the user. Never
+invent or append a fresh-run flag yourself.
+<!-- OPENCLAW_NAMED_STAGE_FAST_PATH_V1_END -->
+
+<!-- OPENCLAW_STARNET_AUTONOMOUS_COMPLETION_V1_BEGIN -->
+## StarNet autonomous completion
+
+For a `siril-starnet-removal` stage request, the stage is not complete when
+candidate generation finishes.
+
+If the StarNet wrapper returns a running process session, poll that exact
+session until it exits. Do not start another StarNet run.
+
+If it exits successfully with:
+
+```text
+status: visual_review_required
+action: continue_autonomously_to_publication
+```
+
+continue immediately without waiting for another user message:
+
+1. Use OpenClaw Read on every exact `read_targets[].path`, verbatim.
+2. Do not run `ls`, `find`, directory discovery, source-code discovery, or
+   attachment/media commands to locate or expose those files.
+3. Never emit `MEDIA:` paths for StarNet review panels.
+4. Never ask the user to choose a candidate.
+5. Compare all candidates autonomously and create specific notes for all of
+   them.
+6. Call the returned `review-publish` entrypoint.
+7. If publication is rejected solely because a note/rationale fails syntax or
+   minimum-length validation, repair the payload and retry publication, up to
+   three formatting retries. Do not rerun StarNet processing.
+8. Stop only when publication reports `ready`, an exact Read target fails, or
+   a real image-processing/contract blocker occurs.
+
+For a completed StarNet stage, the initial fresh-rerun confirmation is still
+required. After the user explicitly confirms, use exactly:
+
+```text
+.../bin/starnet-removal confirm-fresh --project "<project>"
+.../bin/starnet-removal advance --project "<project>"
+```
+
+Never add `--fresh` or `--fresh-run` to the public wrapper. After that explicit
+confirmation, no further user interaction is permitted for normal candidate
+review/selection/publication.
+<!-- OPENCLAW_STARNET_AUTONOMOUS_COMPLETION_V1_END -->
+
+<!-- OPENCLAW_STARNET_REVIEW_ENUM_V156_BEGIN -->
+## StarNet v1.5.6 review publication contract
+
+When StarNet returns `visual_review_required`, complete review and publication
+autonomously.
+
+Use exact values in these structured fields:
+
+```text
+remaining_stars: none | minor | significant
+nebula_damage:   none | minor | significant
+halos:           none | minor | significant
+broad_nebula:    true | false
+accepted:        true | false
+```
+
+Do not put prose in the three severity enum fields. Put visual detail in the
+80+ character `observation` field.
+
+The recommendation is a tie-breaker only. First describe actual visible
+candidate differences. Do not justify selection merely because a candidate was
+the recommended default.
+
+If `review-publish` rejects only the review payload, repair that payload and
+retry publication without rerunning StarNet processing.
+<!-- OPENCLAW_STARNET_REVIEW_ENUM_V156_END -->

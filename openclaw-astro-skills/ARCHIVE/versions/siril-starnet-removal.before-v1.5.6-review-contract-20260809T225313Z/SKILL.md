@@ -1,0 +1,264 @@
+---
+name: siril-starnet-removal
+description: "Run StarNet removal through the canonical v1.5.5 context-safe orchestrator, visually compare compact candidate panels, and publish native starless/starmask/unscreen products."
+user-invocable: true
+metadata: {"openclaw":{"os":["linux"]}}
+---
+
+# Canonical Siril StarNet Workflow
+
+Installed orchestration version: **1.5.5**.
+
+Processing engine version: **1.5.2** (unchanged).
+
+Source-contract revision:
+
+```text
+native-starnet-channel-balance-v1
+```
+
+## Pipeline
+
+```text
+siril-background-neutralization
+→ siril-starnet-removal
+→ siril-sho-channel-balance
+```
+
+StarNet never hands the starless image directly to GHS.
+
+## Normal entry point
+
+For:
+
+```text
+Process <project> with StarNet removal
+```
+
+use exactly:
+
+```text
+/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-starnet-removal/bin/starnet-removal advance --project "<project>"
+```
+
+Do not inspect the skill directory and do not discover helper/Python paths.
+
+Do not use:
+
+```text
+ls
+find
+cat
+grep
+jq
+globbing
+tail/head of helper source
+direct reads of scripts/starnet_workflow.py
+```
+
+The v1.5.2 processing engine is an internal implementation detail and must not
+be invoked directly during normal CodeWarrior operation.
+
+## Completed-stage reruns
+
+A pre-existing canonical StarNet result — including a legacy/obsolete-contract
+canonical — is still a completed image-processing result.
+
+`advance` must first return a confirmation question. It must not silently add
+`--fresh-run`.
+
+Only after the user explicitly confirms:
+
+```text
+.../bin/starnet-removal confirm-fresh --project "<project>"
+.../bin/starnet-removal advance --project "<project>"
+```
+
+Fresh authorization is durable and tied to the current canonical/source hashes.
+The existing canonical result remains untouched until successful publication.
+
+
+## Manifest-first status fast path
+
+Before explicit fresh-run confirmation, `advance` performs only a cheap
+checkpoint check:
+
+1. Confirm that the canonical StarNet files exist.
+2. Read the small `starnet-manifest.json`.
+3. Classify the result as native-ready or legacy/obsolete.
+4. Return the confirmation question immediately.
+
+Do **not** hash the large StarNet FITS products before the user confirms a
+fresh rerun. Strong source/canonical hashes are deliberately deferred to
+`confirm-fresh`, where they bind the durable authorization safely.
+
+A normal completed-stage status response therefore reports:
+
+```text
+hashes_verified: false
+hash_verification_deferred_until: confirm-fresh
+```
+
+This is a latency optimization only; publication and confirmed-rerun integrity
+checks still use strong hashes.
+
+## Candidate generation
+
+The unchanged v1.5.2 engine generates the bounded StarNet set:
+
+```text
+candidate-00: target background 0.15, x1
+candidate-01: target background 0.10, x1
+candidate-02: target background 0.06, x1
+candidate-03: target background 0.10, x2
+```
+
+All existing StarNet/Siril technical gates remain authoritative.
+
+## Context-safe visual review
+
+After candidate generation, `advance` returns exactly:
+
+- the linked source preview;
+- one compact review panel per generated candidate.
+
+Each candidate panel is a fixed 2×2 contact sheet:
+
+```text
+top-left:     starless_linear_linked
+top-right:    starmask_linked
+bottom-left:  starmask_unlinked
+bottom-right: unscreen_linked
+```
+
+The original individual previews remain preserved in the run as evidence.
+
+Use OpenClaw **Read** on every returned `read_targets[].path` exactly as
+returned. Never rediscover a path. If any Read fails, stop and report the exact
+failed path.
+
+Evaluate each candidate for:
+
+- significant stars left in the starless image;
+- recognizable broad M16 nebulosity in either starmask view;
+- removed nebular knots/filaments, holes or other damage;
+- halos, seams or other artifacts;
+- plausibility/localization of the unscreen star layer.
+
+The numerical recommendation is advisory.
+
+## Review and publication
+
+`advance` returns an exact `review_publish_command_template`.
+
+Provide one `--note` for every generated candidate:
+
+```text
+candidate-NN=accepted:<true|false>; remaining_stars:<specific>; broad_nebula:<true|false>; nebula_damage:<specific>; halos:<specific>; observation:<specific visual comparison>
+```
+
+Exactly the selected candidate must have `accepted:true`.
+
+Publication is performed only through:
+
+```text
+.../bin/starnet-removal review-publish
+```
+
+The orchestrator internally creates the legacy v1.5.2 structured review JSON,
+asks the engine to validate it, publishes the validated candidate, then verifies
+the native downstream contract.
+
+Successful v1.5.5 publication also writes:
+
+```text
+processing/starnet/orchestration-review-v1.5.5.json
+```
+
+which records the OpenClaw-read contact-panel hashes and structured visual
+notes.
+
+## Canonical outputs
+
+```text
+processing/starnet/
+├── SHO-starless-linear.fit
+├── SHO-starmask.fit
+├── SHO-stars-unscreen.fit
+├── SHO-linear-neutralized-before-linked.png
+├── SHO-starless-linear-linked.png
+├── SHO-starmask-linked.png
+├── SHO-starmask-unlinked.png
+├── SHO-stars-unscreen-linked.png
+├── visual-review-record.json
+├── orchestration-review-v1.5.5.json
+└── starnet-manifest.json
+```
+
+The starmask is StarNet's native `-m` product. Do not require:
+
+```text
+starless + starmask = original
+```
+
+Later recomposition uses the screen-aware/unscreen workflow.
+
+## Native downstream contract
+
+Every newly published ready StarNet manifest must report:
+
+```text
+source_contract_revision: native-starnet-channel-balance-v1
+stage_order.upstream: siril-background-neutralization
+stage_order.current: siril-starnet-removal
+stage_order.downstream: siril-sho-channel-balance
+next_stage: siril-sho-channel-balance
+sho_channel_balance_permitted: true
+ghs_pass1_permitted: false
+starless_processing_permitted: true
+starless_background_processing_permitted: false
+```
+
+Stop after StarNet publication. Do not automatically run SHO channel balance.
+
+## Autonomous completion is mandatory
+
+A successful `advance` that returns `visual_review_required` is **not a user
+handoff**. It is an internal continuation point for CodeWarrior.
+
+CodeWarrior must, in the same task:
+
+1. Read the source preview and every candidate contact panel using the exact
+   `read_targets[].path` values returned by the wrapper.
+2. Compare all candidates using the supplied visual criteria.
+3. Select the best satisfactory candidate autonomously.
+4. Produce specific structured notes for every candidate.
+5. Invoke `review-publish`.
+6. If `review-publish` rejects only note formatting/length, repair the note
+   payload and retry publication without regenerating StarNet candidates.
+7. Stop only after the wrapper reports `ready` or a real processing/contract
+   blocker occurs.
+
+Do **not**:
+
+```text
+ls the panel directory
+find the panel files
+emit MEDIA: paths
+attach the panels to the user
+ask the user which candidate to choose
+ask the user to continue after candidate generation
+restart StarNet after a publication-format error
+```
+
+The user is authorizing the entire stage, not merely candidate generation.
+
+For a previously completed stage, the explicit fresh-rerun confirmation remains
+mandatory. Once the user answers yes, that confirmation authorizes the entire
+fresh stage through autonomous visual selection and publication; no additional
+user prompt is permitted unless a real blocker occurs.
+
+Candidate observations passed to `review-publish` must contain at least 80
+characters. Semicolons inside an observation are supported by v1.5.5 and must
+not be interpreted as unlabeled fields.
+

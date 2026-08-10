@@ -1,0 +1,449 @@
+---
+name: siril-mono-preprocessing
+description: "Run Siril Mono_Preprocessing.ssf only when the user explicitly requests monochrome preprocessing, calibration, registration, stacking, or invokes this skill by name."
+user-invocable: true
+metadata: {"openclaw":{"os":["linux"]}}
+---
+
+# Siril Mono Preprocessing
+
+
+<!-- INVOCATION-BOUNDARY-START -->
+
+# Strict invocation boundary
+
+These rules override any later general workflow language in this skill.
+
+Use this skill only when the original user message explicitly asks for at
+least one of the following:
+
+- use `siril-mono-preprocessing`
+- run Mono Preprocessing
+- preprocess monochrome data
+- calibrate, register, and stack the filter data
+- run Siril preprocessing
+- process Ha, SII, or OIII through the Mono Preprocessing script
+
+Do not use this skill when the user asks only to:
+
+- prepare a project
+- run `astroproc -p`
+- create a project
+- copy files
+- inspect a project
+- run light-frame quality control
+
+For a request such as:
+
+    please prepare the M16 July 2026 project
+
+the correct action is exclusively:
+
+    astroproc -p "M16 July 2026"
+
+After that command succeeds, stop and report the result.
+
+Do not run Siril.
+
+Permission to run `astroproc -p` does not imply permission to run
+`Mono_Preprocessing.ssf`.
+
+Even when this skill's full preprocessing workflow includes project
+preparation, continue from preparation into Siril only when the original user
+message explicitly requested Siril mono preprocessing.
+
+Do not infer preprocessing permission from:
+
+- the existence of prepared filter folders
+- successful AstroProcessor output
+- a previous conversation
+- an available Siril skill
+- the word `prepare`
+
+<!-- INVOCATION-BOUNDARY-END -->
+Use this skill to calibrate, register, and stack monochrome filter data using
+Siril's official `Mono_Preprocessing.ssf`.
+
+This skill processes one requested filter or all available Ha, SII, and OIII
+filters.
+
+It ends after verified `result.fit` stack files are created.
+
+It does not perform:
+
+- cross-filter alignment
+- SHO combination
+- star removal
+- denoising
+- stretching
+- colour processing
+- final export
+
+# Supporting skills
+
+This skill requires:
+
+- `astroproc`
+- `siril-cli-runner`
+
+Read both supporting skills before using them.
+
+Use `astroproc` to prepare the project.
+
+Use `siril-cli-runner` for every Siril execution.
+
+If either supporting skill is unavailable, stop and report the missing skill.
+
+# Exact project name
+
+The project name supplied by the user is the exact AstroProcessor destination
+project name.
+
+Example:
+
+    M16 July 2026
+
+Use that exact value for:
+
+- `astroproc -p`
+- project path resolution
+- Siril working directories
+- reports
+
+Never change:
+
+    M16 July 2026
+
+to:
+
+    M 16 July 2026
+
+The ASIAIR source-project name `M 16` is a different value and is not used by
+this skill.
+
+Do not derive or alter the project name based on target spelling or another
+directory name.
+
+# Owning agent workspace
+
+Derive the owning agent workspace from this installed skill path:
+
+    <agent workspace>/skills/siril-mono-preprocessing/SKILL.md
+
+The owning workspace is the parent of the `skills` directory.
+
+For CodeWarrior:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior
+
+The project root is:
+
+    <agent workspace>/Projects
+
+For CodeWarrior:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/Projects
+
+The exact project path for the example is:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/Projects/M16 July 2026
+
+# Mandatory operation order
+
+Follow this order exactly:
+
+1. Preserve the exact project name supplied by the user.
+2. Derive the owning agent workspace.
+3. Run `astroproc -p` for the exact project.
+4. Examine the actual exit status and output from `astroproc`.
+5. If preparation succeeds, proceed directly to Siril.
+6. If preparation fails, report the exact AstroProcessor failure.
+7. Only after an AstroProcessor failure may read-only filesystem diagnosis be
+   performed.
+8. Verify the Siril result after processing.
+9. Stop before later image-processing stages.
+
+Do not inspect the project directory before running `astroproc -p`.
+
+Do not run `ls`, `find`, directory counts, or FITS counts as a preparation
+precondition.
+
+Do not reject the project based on filesystem assumptions before AstroProcessor
+has run.
+
+# Prepare the project first
+
+Run AstroProcessor from the owning agent workspace.
+
+For CodeWarrior:
+
+    Working directory:
+    /home/peter/.openclaw/workspace/agents/codewarrior
+
+    Executable:
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc
+
+Command:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -p "<exact project name>"
+
+Example:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/astroproc \
+      -p "M16 July 2026"
+
+Set the process working directory to:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior
+
+Let AstroProcessor:
+
+- locate the project
+- create or refresh processing folders
+- select calibration folders
+- create symbolic links
+- validate the structure
+- report preparation errors
+
+Do not manually reproduce AstroProcessor preparation logic.
+
+Do not manually create, replace, or repair links.
+
+# AstroProcessor success
+
+When `astroproc -p` exits successfully:
+
+- record the exact command
+- record the exit status
+- preserve stdout and stderr
+- report the filters prepared by AstroProcessor
+- report calibration selections printed by AstroProcessor
+- proceed directly to Siril processing
+
+Do not perform an additional readiness scan before Siril.
+
+Do not run `ls -R`.
+
+Do not count FITS files before Siril.
+
+Do not reject the preparation because linked files are not visible to a
+shallow directory command.
+
+# AstroProcessor failure
+
+When `astroproc -p` fails:
+
+1. Stop before Siril.
+2. Report the exact project name.
+3. Report the owning workspace.
+4. Report the exact command.
+5. Report the exit status.
+6. Report AstroProcessor stdout and stderr.
+7. Do not change the project name.
+8. Do not automatically try a similarly named project.
+9. Preserve all project files and links.
+
+Read-only diagnosis is permitted only after this failure.
+
+# Directory structure for failure diagnosis
+
+The prepared structure is:
+
+    <workspace>/Projects/<project>/processing/
+      Ha/
+        lights
+        darks
+        flats
+        biases
+      SII/
+        lights
+        darks
+        flats
+        biases
+      OIII/
+        lights
+        darks
+        flats
+        biases
+
+The FITS files are not expected directly inside:
+
+    processing/Ha
+    processing/SII
+    processing/OIII
+
+They are found through:
+
+    processing/<filter>/lights
+    processing/<filter>/darks
+    processing/<filter>/flats
+    processing/<filter>/biases
+
+These entries may be symbolic links.
+
+Their resolved targets may contain additional dated directory levels.
+
+# Correct failure-diagnostic procedure
+
+Only after `astroproc -p` fails:
+
+1. Inspect the exact project path.
+2. Preserve the exact project name.
+3. Do not substitute a similarly named directory.
+4. Inspect each filter's four category entries.
+5. Use `readlink` and `readlink -f` to display symbolic-link targets.
+6. Follow links recursively when locating FITS files.
+7. Recognize `.fit`, `.fits`, and `.fts` case-insensitively.
+8. Do not modify anything.
+
+A suitable diagnostic command pattern is:
+
+    find -L "<project>/processing/<filter>/<category>" \
+      -type f \
+      \( -iname '*.fit' -o -iname '*.fits' -o -iname '*.fts' \)
+
+The `-L` option is required because the prepared category entries may be
+directory symbolic links.
+
+Do not use this incorrect diagnostic:
+
+    find "<project>/processing" -type f
+
+It may report zero files because it does not follow linked directories.
+
+Do not use `ls -R` as proof that the linked folders contain no files.
+
+# Siril script
+
+Use Siril's official:
+
+    Mono_Preprocessing.ssf
+
+Expected script path:
+
+    /home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root/usr/share/siril/scripts/Mono_Preprocessing.ssf
+
+If that file is missing, search read-only for exactly
+`Mono_Preprocessing.ssf` beneath:
+
+    /home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root
+
+Use it only when exactly one copy is found.
+
+Do not download, edit, or replace the official script.
+
+# Siril working directory
+
+For each filter, the Siril working directory is the filter directory itself.
+
+Examples:
+
+    <workspace>/Projects/M16 July 2026/processing/Ha
+
+    <workspace>/Projects/M16 July 2026/processing/SII
+
+    <workspace>/Projects/M16 July 2026/processing/OIII
+
+Do not use:
+
+- the project root
+- the `processing` directory
+- the `lights` directory
+- a resolved symbolic-link target
+- the AstroProcessor repository
+
+The official script expects `lights`, `darks`, `flats`, and `biases` relative
+to the filter working directory.
+
+# Siril execution
+
+Use `siril-cli-runner` for every filter.
+
+Supply:
+
+- stage: `mono-preprocessing-<filter>`
+- project root: exact workspace project path
+- working directory: `processing/<filter>`
+- script: verified `Mono_Preprocessing.ssf`
+- expected output: `processing/<filter>/result.fit`
+- timeout: up to three hours
+- overwrite: forbidden
+- preview: requested after successful processing
+
+Process filters sequentially:
+
+1. Ha
+2. SII
+3. OIII
+
+Do not process filters concurrently.
+
+# Existing results
+
+If `result.fit` already exists:
+
+- do not overwrite it
+- validate it read-only
+- report that an existing result was found
+- do not rerun that filter automatically
+
+If a previous `process` directory exists without a valid result:
+
+- do not delete it
+- report the incomplete prior run
+- stop that filter for review
+
+# Result validation
+
+A filter succeeds only when:
+
+1. Siril exits successfully.
+2. No fatal script error is reported.
+3. `result.fit` exists.
+4. `result.fit` is non-empty.
+5. Siril can reopen it.
+6. It is a plausible monochrome image.
+7. Its dimensions are plausible.
+8. The runner result record exists.
+
+Report:
+
+- filter
+- working directory
+- duration
+- result path
+- dimensions
+- calibrated and registered counts when reported
+- rejected-frame count when reported
+- warnings
+- log path
+- preview path
+- runner result-record path
+
+# Failure handling
+
+On Siril failure:
+
+- stop the current filter
+- preserve all files
+- preserve logs
+- do not delete `process`
+- do not delete a partial result
+- do not retry automatically
+- report the first meaningful Siril error
+- do not continue to later image-processing stages
+
+# Short invocation
+
+    Use the siril-mono-preprocessing skill to preprocess all filters in
+    "M16 July 2026".
+
+# Final rule
+
+Run `astroproc -p` before any filesystem inspection.
+
+When AstroProcessor succeeds, proceed directly to Siril.
+
+Only diagnose the nested, symlink-based directory structure after an actual
+AstroProcessor failure, and use recursive symlink-following checks.

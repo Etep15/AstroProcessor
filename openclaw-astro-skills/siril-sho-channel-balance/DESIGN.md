@@ -33,3 +33,7 @@ The pre-StarNet v1.0.1 canonical is intentionally classified obsolete but recogn
 ## Downstream
 
 The published v1.1.0 manifest is the sole source contract for GHS pass 1 after this migration.
+
+## Native StarNet source contract
+
+Only StarNet source-contract revision `native-starnet-channel-balance-v1` is accepted. Direct StarNet -> GHS compatibility is intentionally removed.

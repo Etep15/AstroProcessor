@@ -1,0 +1,16 @@
+{
+  "repository": "https://gitlab.com/free-astro/siril-scripts.git",
+  "commit": "4b47908ec8a7073d5645e0824be2ea2b3e9a976d",
+  "source_path": "StarNetAstro/StarNet.py",
+  "sha256": "5cb281bf36318c50fb4ab9b429b19c9b2d4c31d98ce9d46ccd05435182887623",
+  "fetched_at": "2026-08-05T07:14:29Z",
+  "starnet_cli": {
+    "distribution": "official portable ZIP",
+    "package_url": "https://download.starnetastro.com/starnet2_linux_2.5.4-0214_ORT_x64_cli.zip",
+    "package_sha256": "b7a95ae3e1a9745b09536c3686eed338690b8693d5f446092524e7be75d29052",
+    "runtime_root": "/home/peter/.openclaw/runtime/starnet2/2.5.4",
+    "installed_executable": "/home/peter/.openclaw/runtime/starnet2/2.5.4/starnet2_linux_2.5.4-0214_ORT_x64_cli/starnet2",
+    "executable_sha256": "de023cf9938c4d15d0e6bfd3ddf3bb9cdbc3a09e2855596eb6f943eb36991abd",
+    "expected_version": "2.5.4"
+  }
+}

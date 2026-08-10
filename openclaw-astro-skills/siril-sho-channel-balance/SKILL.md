@@ -5,7 +5,7 @@ user-invocable: true
 metadata: {"openclaw":{"os":["linux"]}}
 ---
 
-# Siril SHO Channel Balance 1.1.0 — post-StarNet starless
+# Siril SHO Channel Balance 1.1.0 — native post-StarNet starless contract
 
 Use exactly:
 
@@ -47,7 +47,7 @@ siril-sho-combination
 
 **This stage processes only the StarNet STARLESS image. It never modifies the starmask or stars/unscreen layer.** This placement exists specifically so nebular colour balancing cannot turn the preserved stars magenta/purple.
 
-Current M16 StarNet 1.5.2 still records GHS pass 1 as its downstream stage. v1.1.0 accepts that exact reviewed StarNet contract as a temporary migration bridge; future native StarNet manifests may point directly to `siril-sho-channel-balance`.
+StarNet 1.5.2 must use source-contract revision `native-starnet-channel-balance-v1` and point directly to `siril-sho-channel-balance`. The former direct-StarNet-to-GHS compatibility bridge is no longer accepted.
 
 ## Required source
 
@@ -57,7 +57,7 @@ processing/starnet/starnet-manifest.json
 processing/starnet/visual-review-record.json
 ```
 
-Require StarNet helper 1.5.2, ready status, completed visual review, finite BITPIX -32 RGB starless FITS, exact source/review checksums, and either the native channel-balance downstream contract or the validated 1.5.2 GHS bridge.
+Require StarNet helper 1.5.2, source-contract revision `native-starnet-channel-balance-v1`, ready status, completed visual review, finite BITPIX -32 RGB starless FITS, exact source/review checksums, `next_stage: siril-sho-channel-balance`, `sho_channel_balance_permitted: true`, and `ghs_pass1_permitted: false`.
 
 Never process:
 

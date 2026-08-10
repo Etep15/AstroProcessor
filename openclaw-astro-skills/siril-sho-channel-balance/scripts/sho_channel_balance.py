@@ -20,6 +20,7 @@ import numpy as np
 from astropy.io import fits
 
 VERSION = "1.1.0"
+REQUIRED_STARNET_SOURCE_CONTRACT_REVISION = "native-starnet-channel-balance-v1"
 REQUIRED_SIRIL_VERSION = "1.4.4"
 
 SIRIL_ROOT = Path(
@@ -337,6 +338,7 @@ def run_siril_script(
     return result
 
 
+
 def validate_upstream(
     workspace: Path,
     project_name: str,
@@ -345,17 +347,12 @@ def validate_upstream(
     if not paths["project"].is_dir():
         raise ChannelBalanceError(f"Project does not exist: {paths['project']}")
     if not paths["source_manifest"].is_file():
-        raise ChannelBalanceError(
-            f"StarNet manifest is missing: {paths['source_manifest']}"
-        )
+        raise ChannelBalanceError(f"StarNet manifest is missing: {paths['source_manifest']}")
     if not paths["source_review"].is_file():
-        raise ChannelBalanceError(
-            f"StarNet visual-review record is missing: {paths['source_review']}"
-        )
+        raise ChannelBalanceError(f"StarNet visual-review record is missing: {paths['source_review']}")
 
     manifest = load_json(paths["source_manifest"])
     source = inspect_fits(paths["source"])
-
     errors: list[str] = []
     if manifest.get("project") != project_name:
         errors.append("StarNet manifest project does not match")
@@ -363,70 +360,56 @@ def validate_upstream(
         errors.append("StarNet manifest project path does not match")
     if manifest.get("helper_version") != "1.5.2":
         errors.append("StarNet helper is not 1.5.2")
+    if manifest.get("source_contract_revision") != REQUIRED_STARNET_SOURCE_CONTRACT_REVISION:
+        errors.append("StarNet source-contract revision is not native-starnet-channel-balance-v1")
     if manifest.get("status") != "ready":
         errors.append("StarNet manifest is not ready")
     if manifest.get("visual_review_completed") is not True:
         errors.append("StarNet visual review is incomplete")
+    if manifest.get("sho_channel_balance_permitted") is not True:
+        errors.append("StarNet does not permit SHO channel balance")
+    if manifest.get("ghs_pass1_permitted") is not False:
+        errors.append("StarNet incorrectly permits direct GHS pass 1")
     if manifest.get("starless_processing_permitted") is not True:
         errors.append("StarNet does not permit starless processing")
     if manifest.get("starless_background_processing_permitted") is not False:
         errors.append("StarNet incorrectly permits another background stage")
+    if manifest.get("next_stage") != "siril-sho-channel-balance":
+        errors.append("StarNet next stage is not SHO channel balance")
+    if manifest.get("stage_order") != {
+        "upstream": "siril-background-neutralization",
+        "current": "siril-starnet-removal",
+        "downstream": "siril-sho-channel-balance",
+    }:
+        errors.append("StarNet stage order does not use the native channel-balance handoff")
 
     linear_starless = manifest.get("linear_starless", {})
     if Path(str(linear_starless.get("path", ""))).resolve() != paths["source"].resolve():
         errors.append("StarNet manifest does not reference canonical SHO-starless-linear.fit")
     if linear_starless.get("sha256") != source.sha256:
         errors.append("StarNet starless SHA-256 does not match current source")
-
     review = manifest.get("visual_review", {})
     if Path(str(review.get("record_path", ""))).resolve() != paths["source_review"].resolve():
         errors.append("StarNet visual-review path is not canonical")
     elif sha256_file(paths["source_review"]) != review.get("record_sha256"):
         errors.append("StarNet visual-review checksum does not match")
-
     if source.channels != 3 or source.bitpix != -32 or source.finite_fraction != 1.0:
         errors.append("StarNet starless source is not finite 32-bit floating-point RGB")
-
-    stage_order = manifest.get("stage_order", {})
-    native = (
-        stage_order == {
-            "upstream": "siril-background-neutralization",
-            "current": "siril-starnet-removal",
-            "downstream": "siril-sho-channel-balance",
-        }
-        and manifest.get("sho_channel_balance_permitted") is True
-        and manifest.get("next_stage") == "siril-sho-channel-balance"
-    )
-    legacy_bridge = (
-        stage_order == {
-            "upstream": "siril-background-neutralization",
-            "current": "siril-starnet-removal",
-            "downstream": "siril-ghs-stretch-pass1",
-        }
-        and manifest.get("ghs_pass1_permitted") is True
-    )
-    if native:
-        contract_mode = "native-starnet-channel-balance"
-    elif legacy_bridge:
-        contract_mode = "temporary-starnet-1.5.2-ghs-bridge"
-    else:
-        contract_mode = "invalid"
-        errors.append("StarNet manifest does not permit post-StarNet channel balance")
-
     if errors:
         raise ChannelBalanceError("Upstream StarNet contract failed: " + "; ".join(errors))
-
     summary = {
         "helper_version": manifest.get("helper_version"),
+        "source_contract_revision": manifest.get("source_contract_revision"),
         "status": manifest.get("status"),
         "manifest": str(paths["source_manifest"]),
         "manifest_sha256": sha256_file(paths["source_manifest"]),
         "visual_review_record": str(paths["source_review"]),
         "visual_review_record_sha256": sha256_file(paths["source_review"]),
-        "contract_mode": contract_mode,
+        "contract_mode": REQUIRED_STARNET_SOURCE_CONTRACT_REVISION,
         "source_sha256": source.sha256,
     }
     return manifest, source, summary
+
 
 
 
@@ -1376,6 +1359,7 @@ def status_project(workspace: Path, project_name: str) -> dict[str, Any]:
     return stable
 
 
+
 def write_synthetic_upstream(workspace: Path, project_name: str) -> None:
     paths = project_paths(workspace, project_name)
     paths["source"].parent.mkdir(parents=True, exist_ok=False)
@@ -1394,15 +1378,17 @@ def write_synthetic_upstream(workspace: Path, project_name: str) -> None:
     json_dump_atomic(paths["source_review"], review_payload)
     manifest = {
         "schema_version": 3, "helper_version": "1.5.2", "status": "ready",
+        "source_contract_revision": REQUIRED_STARNET_SOURCE_CONTRACT_REVISION,
         "project": project_name, "project_path": str(paths["project"]),
-        "stage_order": {"upstream": "siril-background-neutralization", "current": "siril-starnet-removal", "downstream": "siril-ghs-stretch-pass1"},
-        "next_stage": "siril-ghs-stretch-pass1", "ghs_pass1_permitted": True,
-        "starless_processing_permitted": True, "starless_background_processing_permitted": False,
-        "visual_review_completed": True,
+        "stage_order": {"upstream": "siril-background-neutralization", "current": "siril-starnet-removal", "downstream": "siril-sho-channel-balance"},
+        "next_stage": "siril-sho-channel-balance", "sho_channel_balance_permitted": True,
+        "ghs_pass1_permitted": False, "starless_processing_permitted": True,
+        "starless_background_processing_permitted": False, "visual_review_completed": True,
         "linear_starless": asdict(source),
         "visual_review": {"record_path": str(paths["source_review"]), "record_sha256": sha256_file(paths["source_review"])},
     }
     json_dump_atomic(paths["source_manifest"], manifest)
+
 
 
 

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+exec /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/.venv/bin/python \
+  /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-starnet-removal/scripts/starnet_orchestrator.py "$@"
