@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+exec "/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/.venv/bin/python" \
+  "/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-black-point/scripts/black_point.py" \
+  "$@"

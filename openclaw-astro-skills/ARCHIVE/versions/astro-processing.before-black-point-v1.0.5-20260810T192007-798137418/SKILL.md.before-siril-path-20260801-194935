@@ -1,173 +1,9 @@
-<!-- OPENCLAW_BLACK_POINT_FAST_ROUTE_V106_BEGIN -->
-## Black-point named-stage fast route — highest priority
-
-For a direct request such as:
-
-```text
-Process M16 July 2026 with black point
-```
-
-the **first Exec** must be exactly:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-black-point/bin/black-point advance --project "M16 July 2026"
-```
-
-For another project, substitute only the requested project name.
-
-Do not read `astro-processing`, the black-point SKILL, helper source, manifests,
-or run evidence before that first Exec. Do not discover project directories,
-Python, run roots, or manifests with `ls`, `find`, `tree`, `grep`, `jq`,
-globbing, or system Python.
-
-If `confirmation_required` is returned, ask exactly the returned question.
-After a clear affirmative response, use **one Exec** containing exactly:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-black-point/bin/black-point confirm-fresh --project "<project>" && /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-black-point/bin/black-point advance --project "<project>"
-```
-
-If that Exec remains in progress, poll the same process/session. Do not start a
-second run.
-
-When `visual_review_required` is returned, use OpenClaw Read on every returned
-`read_targets[].path` exactly as returned, once. Do not locate alternate paths.
-Autonomously select the best eligible candidate and invoke the returned compact
-`select-publish` interface. Formatting-only publication retries are permitted;
-candidate regeneration is not.
-
-If any unexpected blocker is returned after authorization, stop and report the
-exact returned error. Do not use directory discovery, manual manifest
-inspection, source-code inspection, or move/rename `processing/black-point` as
-recovery.
-
-Normal completion is `ready` with handoff to `siril-green-reduction`; stop
-before running green reduction.
-<!-- OPENCLAW_BLACK_POINT_FAST_ROUTE_V106_END -->
-
-<!-- OPENCLAW_GHS_PASS2_FAST_ROUTE_V131_BEGIN -->
-## GHS pass-2 named-stage fast route — highest priority
-
-For a direct request such as:
-
-```text
-Process M16 July 2026 with GHS Stretch pass 2
-```
-
-the first Exec must be exactly:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-ghs-stretch-pass2/bin/ghs-pass2 advance --project "M16 July 2026"
-```
-
-For another project, substitute only that requested project name.
-
-Do not read `astro-processing` or GHS2 source before this first Exec. Do not
-perform project discovery, `ls`, `find`, `tree`, `grep`, `jq`, globbing,
-system-Python or venv discovery, AstroProcessor operations, or ASIAIR
-inspection.
-
-If `confirmation_required` is returned, ask exactly once. After an explicit
-confirmation, run exactly:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-ghs-stretch-pass2/bin/ghs-pass2 confirm-fresh --project "<project>"
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-ghs-stretch-pass2/bin/ghs-pass2 advance --project "<project>"
-```
-
-After confirmation, complete candidate generation, exact-path visual review,
-autonomous selection, publication, and final verification without another
-normal user prompt.
-<!-- OPENCLAW_GHS_PASS2_FAST_ROUTE_V131_END -->
-
 ---
 name: astro-processing
 description: "Orchestrate a complete bounded SHO astrophotography workflow using AstroProcessor and Siril CLI."
 user-invocable: true
-metadata: {"openclaw":{"os":["linux"]}}
+metadata: {"openclaw":{"requires":{"bins":["siril-cli"]},"os":["linux"]}}
 ---
-
-## Named stage request router — highest priority
-
-This routing rule takes precedence over the full-pipeline instructions below.
-
-When the user requests a **named installed processing stage** for an existing
-project, for example:
-
-```text
-Process M16 July 2026 with SHO channel balance
-Process M16 July 2026 with green reduction
-Process M16 July 2026 with black point
-```
-
-that request is **not** permission to start, recreate, import, prepare, or
-resume the complete pipeline.
-
-For named-stage requests:
-
-1. Identify the matching installed stage skill.
-2. Read that stage skill's `SKILL.md`.
-3. Hand control to that stage immediately.
-4. Follow the stage skill's canonical project root and helper.
-5. Do not execute earlier or later pipeline stages.
-
-Canonical existing CodeWarrior projects root:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/Projects
-```
-
-Do not substitute:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/Projects
-```
-
-For a named-stage request, **never** run any AstroProcessor operation,
-including `astroproc --help`, `-np`, `-c`, or `-p`; never inspect ASIAIR source
-directories; never create/copy/prepare a project; and never rediscover the
-project in alternate roots.
-
-Explicit routing:
-
-```text
-SHO channel balance
-→ siril-sho-channel-balance
-→ /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-sho-channel-balance/bin/sho-channel-balance
-```
-
-Therefore the request:
-
-```text
-Process M16 July 2026 with SHO channel balance
-```
-
-must be handled only by `siril-sho-channel-balance`. The first processing
-command for that request is its `advance --project "M16 July 2026"` entry
-point. Do not run AstroProcessor first.
-
-The full `astro-processing` workflow below applies only when the user actually
-asks to process an unprocessed/raw dataset or requests the complete pipeline
-from source/import onward.
-
-
-# Siril CLI command
-
-The approved Siril CLI command prefix is:
-
-    env APPDIR="/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root" "/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root/AppRun" siril-cli
-
-Use this exact command prefix whenever this skill or the supporting
-`siril-cli-runner` skill invokes Siril.
-
-Before processing:
-
-1. Confirm that `/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root/AppRun` exists.
-2. Confirm that it is executable.
-3. Confirm that the command reports Siril 1.4.4.
-4. Do not invoke `/home/peter/.openclaw/runtime/siril-processor/toolchain/.toolchain/siril/1.4.4/squashfs-root/usr/bin/siril-cli` directly.
-5. Do not create a global `/usr/local/bin/siril-cli` command.
-6. Do not copy, move, replace, or modify the Siril runtime during processing.
 
 # AstroProcessor executable
 
@@ -232,27 +68,6 @@ If `siril-cli-runner` is unavailable:
 - stop before the first Siril stage
 - report the missing supporting skill
 
-## Post-StarNet PixelMath channel-balance named-stage route — highest priority
-
-Treat all of these as the same existing-project named stage:
-
-```text
-SHO channel balance
-PixelMath channel balance
-pixel math channel balance
-SHO PixelMath channel balance
-```
-
-Route them directly to `siril-sho-channel-balance` and begin with:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-sho-channel-balance/bin/sho-channel-balance advance --project "<project>"
-```
-
-For this named-stage request, do not invoke AstroProcessor/`astroproc`, do not inspect `/mnt/asiair`, and do not initialize, copy, prepare, rediscover, or rebuild the project. Use only the canonical existing project under `/home/peter/.openclaw/workspace/agents/codewarrior/Projects`.
-
-This routing rule supersedes any older prose suggesting that PixelMath SHO colour balancing is performed on the star-containing SHO image. Channel balance is now **post-StarNet and STARLESS only**.
-
 # Workflow order
 
 Use this processing order:
@@ -266,31 +81,22 @@ Use this processing order:
 7. Collect, identify, and evaluate the Ha, SII, and OIII masters.
 8. Align the three master images.
 9. Crop them to a common valid region.
-10. Perform the **pure SHO channel combination** without adaptive colour balancing.
-11. Apply background neutralization to the linear SHO image.
-12. Run StarNet and preserve the matched starless/starmask/unscreen-star products.
-13. Apply bounded **PixelMath/SHO channel balance to the reviewed STARLESS image only** using `siril-sho-channel-balance`.
-14. Apply GHS pass 1 to the balanced starless image.
-15. Apply GHS pass 2 to the starless image.
-16. Adjust the black point on the starless image.
-17. Apply green reduction to the starless image.
-18. Adjust saturation and bounded later colour refinement on the starless image.
-19. Process the preserved star image separately.
-20. Recombine the processed stars and starless nebula.
-21. Export the final PNG, TIFF, and processing-master FITS.
-22. Write a processing report.
+10. Perform the SHO channel combination.
+11. Remove stars from the linear SHO image.
+12. Apply linear noise reduction to the starless image.
+13. Apply GHS pass 1 to the starless image.
+14. Apply GHS pass 2 to the starless image.
+15. Adjust the black point on the starless image.
+16. Apply green reduction to the starless image.
+17. Adjust saturation and bounded colour balance on the starless image.
+18. Process the star image separately.
+19. Recombine the stars and starless image.
+20. Export the final PNG, TIFF, and processing-master FITS.
+21. Write a processing report.
 
-Critical colour-order rule:
-
-```text
-siril-sho-combination
-→ siril-background-neutralization
-→ siril-starnet-removal
-→ siril-sho-channel-balance
-→ siril-ghs-stretch
-```
-
-PixelMath channel balancing after StarNet changes the nebular SHO colour ratios without changing the saved star layer. Do **not** apply the adaptive channel-balance stage to a star-containing SHO image. The preserved StarNet starmask/unscreen-stars are not inputs to channel balance and remain available for independent star processing and recomposition.
+This order separates the stars immediately after the linear SHO combination so
+all subsequent stretching, black-point, green-reduction, and colour processing
+can be applied to the starless image without creating magenta or green stars.
 
 # Prompt interpretation
 
@@ -1156,28 +962,73 @@ Do not use cropping to conceal channel misalignment.
 
 # Stage 10 — SHO channel combination
 
-Create and publish the **pure linear SHO composition** only:
+## Baseline
+
+Map:
 
 - red = SII
 - green = Ha
 - blue = OIII
 
-Do not perform the adaptive PixelMath colour-balance search here. Preserve this star-containing SHO image as the upstream checkpoint for background neutralization and StarNet. The bounded PixelMath colour-balance stage runs later on `processing/starnet/SHO-starless-linear.fit` through the dedicated `siril-sho-channel-balance` skill.
+For the M16 profile, start with:
 
-Guardrails:
+- red: `S`
+- green: `med(S) + 0.25 * (H - med(H))`
+- blue: `med(S) + (O - med(O))`
 
-- keep the composition linear;
-- do not alter star colours here;
-- do not use downstream green reduction as a substitute for channel balance;
-- hand off to background neutralization, then StarNet.
+Save a new 32-bit linear RGB FITS checkpoint.
+
+Do not permanently stretch the individual channel masters.
+
+## Evaluation
+
+Under a standardized preview, inspect:
+
+- background-channel balance
+- excessive green dominance
+- magenta background
+- clipped channels
+- nebular structure in all channels
+- amplified OIII noise
+- colour discontinuities
+- correct filter mapping
+
+## Guardrails
+
+Maximum 3 candidates.
+
+For the Ha coefficient:
+
+- starting value: `0.25`
+- maximum per-attempt change: `0.05`
+- automatic bounds: `0.15` to `0.40`
+
+For channel normalization factors:
+
+- maximum per-attempt change: 15%
+- maximum cumulative change from baseline: 30%
+
+Do not change multiple channel factors and the combination expression in one
+attempt.
+
+Do not force a neutral-grey nebula. SHO colour is synthetic.
+
+Do not brighten a weak channel so aggressively that its noise dominates.
+
+Ideal clipping is zero. Reject a candidate with meaningful new channel
+clipping.
+
+Save the accepted linear SHO image as a major restart checkpoint.
 
 # Stage 11 — Star removal
 
-Use the approved installed StarNet workflow after background neutralization and before PixelMath channel balance, denoising, stretching, black-point, green-reduction, or saturation processing.
+Use the approved installed `StarNet.py` Siril Python script immediately after
+the accepted linear SHO combination and before any denoising, stretching,
+black-point, green-reduction, or saturation processing.
 
 ## Baseline
 
-- source image is the accepted background-neutralized linear SHO image
+- source image is the accepted linear SHO image from Stage 10
 - linear-image option: enabled
 - 2x upsampling: enabled
 - custom stride: disabled
@@ -1776,241 +1627,3 @@ Use `.ssf` or approved Siril Python scripts for deterministic image operations.
 
 Never sacrifice source preservation, reproducibility, or bounded execution in
 pursuit of a marginally better-looking image.
-
-## Canonical GHS installed-skill routing
-
-Use these exact installed skill names:
-
-```text
-GHS pass 1
-GHS stretch pass 1
-siril-ghs-stretch-pass1   (compatibility stage label)
-→ siril-ghs-stretch
-
-GHS pass 2
-GHS stretch pass 2
-→ siril-ghs-stretch-pass2
-```
-
-Never search for or create a `skills/siril-ghs-stretch-pass1/` directory.
-The actual pass-1 skill is `skills/siril-ghs-stretch/`.
-
-The pipeline in installed-skill names is:
-
-```text
-siril-sho-combination
-→ siril-background-neutralization
-→ siril-starnet-removal
-→ siril-sho-channel-balance
-→ siril-ghs-stretch
-→ siril-ghs-stretch-pass2
-```
-
-## GHS pass-1 v1.3.2 execution routing
-
-For `Process <project> with GHS stretch pass 1`, route to the installed
-`siril-ghs-stretch` skill and use exactly:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-ghs-stretch/bin/ghs-stretch advance --project "<project>"
-```
-
-Do not probe Python environments, inspect the skill directory, or invoke
-`scripts/ghs_stretch.py` directly. Pass 2 remains
-`siril-ghs-stretch-pass2` and must require the pass-1 v1.3.2 visual-selection
-record before processing.
-
-## StarNet v1.5.4 context-safe execution routing
-
-For:
-
-```text
-Process <project> with StarNet removal
-```
-
-route to `siril-starnet-removal` and execute exactly:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-starnet-removal/bin/starnet-removal advance --project "<project>"
-```
-
-Do not inspect the StarNet skill directory, discover Python/helper paths, or
-invoke `scripts/starnet_workflow.py` directly.
-
-A completed StarNet stage must ask for fresh-run confirmation first. After
-explicit confirmation use `confirm-fresh`, then `advance`.
-
-When `visual_review_required` is returned, Read only the exact source/contact
-panel paths returned by the orchestrator. Do not recursively inspect candidate
-directories or helper source.
-
-Successful StarNet publication stops at `siril-sho-channel-balance`.
-
-<!-- OPENCLAW_NAMED_STAGE_FAST_PATH_V1_BEGIN -->
-## Named-stage fast path
-
-For a direct stage request of the form:
-
-```text
-Process <project> with <named stage>
-```
-
-do not discover the project or inspect its filesystem before invoking the
-canonical stage entrypoint. The stage wrapper owns project resolution, current
-status, obsolete/completed detection, resume state and fresh-run confirmation.
-
-For these known stages, the **first Exec tool call** must be the exact mapped
-entrypoint below. Do not precede it with `find`, `ls`, `ls -R`, `tree`, `grep`,
-`du`, project-directory inspection, alternate-root inspection, ASIAIR
-inspection, helper discovery, Python discovery, or source-code inspection.
-
-Canonical project root for stage wrappers:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/Projects
-```
-
-Known direct routes:
-
-```text
-StarNet removal
-  /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-starnet-removal/bin/starnet-removal advance --project "<project>"
-
-SHO channel balance
-PixelMath channel balance
-  /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-sho-channel-balance/bin/sho-channel-balance advance --project "<project>"
-
-GHS stretch pass 1
-GHS pass 1
-  /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-ghs-stretch/bin/ghs-stretch advance --project "<project>"
-```
-
-A direct Read of the explicitly named stage `SKILL.md` is permitted when needed
-for semantic instructions, but it must not trigger project discovery. For a
-stage not in this fixed route table, Read the canonical `astro-processing`
-routing instructions directly; still do not search the filesystem for the
-project.
-
-If a wrapper reports `confirmation_required`, stop and ask the user. Never
-invent or append a fresh-run flag yourself.
-<!-- OPENCLAW_NAMED_STAGE_FAST_PATH_V1_END -->
-
-<!-- OPENCLAW_STARNET_AUTONOMOUS_COMPLETION_V1_BEGIN -->
-## StarNet autonomous completion
-
-For a `siril-starnet-removal` stage request, the stage is not complete when
-candidate generation finishes.
-
-If the StarNet wrapper returns a running process session, poll that exact
-session until it exits. Do not start another StarNet run.
-
-If it exits successfully with:
-
-```text
-status: visual_review_required
-action: continue_autonomously_to_publication
-```
-
-continue immediately without waiting for another user message:
-
-1. Use OpenClaw Read on every exact `read_targets[].path`, verbatim.
-2. Do not run `ls`, `find`, directory discovery, source-code discovery, or
-   attachment/media commands to locate or expose those files.
-3. Never emit `MEDIA:` paths for StarNet review panels.
-4. Never ask the user to choose a candidate.
-5. Compare all candidates autonomously and create specific notes for all of
-   them.
-6. Call the returned `review-publish` entrypoint.
-7. If publication is rejected solely because a note/rationale fails syntax or
-   minimum-length validation, repair the payload and retry publication, up to
-   three formatting retries. Do not rerun StarNet processing.
-8. Stop only when publication reports `ready`, an exact Read target fails, or
-   a real image-processing/contract blocker occurs.
-
-For a completed StarNet stage, the initial fresh-rerun confirmation is still
-required. After the user explicitly confirms, use exactly:
-
-```text
-.../bin/starnet-removal confirm-fresh --project "<project>"
-.../bin/starnet-removal advance --project "<project>"
-```
-
-Never add `--fresh` or `--fresh-run` to the public wrapper. After that explicit
-confirmation, no further user interaction is permitted for normal candidate
-review/selection/publication.
-<!-- OPENCLAW_STARNET_AUTONOMOUS_COMPLETION_V1_END -->
-
-<!-- OPENCLAW_STARNET_REVIEW_ENUM_V156_BEGIN -->
-## StarNet v1.5.6 review publication contract
-
-When StarNet returns `visual_review_required`, complete review and publication
-autonomously.
-
-Use exact values in these structured fields:
-
-```text
-remaining_stars: none | minor | significant
-nebula_damage:   none | minor | significant
-halos:           none | minor | significant
-broad_nebula:    true | false
-accepted:        true | false
-```
-
-Do not put prose in the three severity enum fields. Put visual detail in the
-80+ character `observation` field.
-
-The recommendation is a tie-breaker only. First describe actual visible
-candidate differences. Do not justify selection merely because a candidate was
-the recommended default.
-
-If `review-publish` rejects only the review payload, repair that payload and
-retry publication without rerunning StarNet processing.
-<!-- OPENCLAW_STARNET_REVIEW_ENUM_V156_END -->
-
-<!-- OPENCLAW_SHO_CHANNEL_BALANCE_AUTONOMOUS_V120_BEGIN -->
-## SHO channel-balance v1.2.0 autonomous completion
-
-For a direct request:
-
-```text
-Process <project> with SHO channel balance
-```
-
-the first Exec remains exactly:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-sho-channel-balance/bin/sho-channel-balance advance --project "<project>"
-```
-
-Do not perform project discovery first.
-
-If `confirmation_required` is returned, ask the user exactly once. A completed
-but obsolete result still requires explicit fresh-rerun confirmation.
-
-After the user confirms, use exactly:
-
-```text
-.../bin/sho-channel-balance confirm-fresh --project "<project>"
-.../bin/sho-channel-balance advance --project "<project>"
-```
-
-Never add `--fresh` or `--fresh-run` to the public wrapper.
-
-After confirmation, continue the entire stage autonomously:
-
-- poll an existing process session rather than starting another run;
-- for `visual_review_required`, Read every exact returned path verbatim;
-- do not use `ls`, `find`, directory discovery, source discovery or `MEDIA:`;
-- autonomously classify the dominant visual problem;
-- call the returned `review-refine` template;
-- repeat bounded refinement until final selection;
-- for `selection_review_required`, use the accumulated reviewed-candidate
-  evidence; do not ask the user and do not automatically choose the latest;
-- invoke `select-publish` with candidate-specific structured notes;
-- repair review-format errors without regenerating candidates;
-- stop only after `ready`, an exact Read failure, or a real
-  processing/contract blocker.
-
-The channel-balance stage is STARLESS only. Never modify the StarNet starmask
-or unscreen-stars layer.
-<!-- OPENCLAW_SHO_CHANNEL_BALANCE_AUTONOMOUS_V120_END -->

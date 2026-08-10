@@ -5,9 +5,9 @@ user-invocable: true
 metadata: {"openclaw":{"os":["linux"]}}
 ---
 
-# Siril Black Point 1.0.6
+# Siril Black Point 1.0.5
 
-Orchestration version: **1.0.6**
+Orchestration version: **1.0.5**
 
 Processing helper: **1.0.4, byte-for-byte unchanged**
 
@@ -18,7 +18,7 @@ as:
 /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-black-point/bin/black-point-v1.0.4
 ```
 
-v1.0.6 does not reimplement the mature v1.0.4 review/selection/publication
+v1.0.5 does not reimplement the mature v1.0.4 review/selection/publication
 interface. It only intercepts named-stage entry and fresh-rerun authorization.
 
 Use exactly:
@@ -87,7 +87,7 @@ remains governed by the preserved v1.0.4 wrapper.
 
 ## Manifest-first fast path
 
-Before confirmation, v1.0.6 reads only the small GHS2/black-point manifests
+Before confirmation, v1.0.5 reads only the small GHS2/black-point manifests
 and file-existence metadata. It does not hash the 100+ MB FITS files.
 
 Large FITS hashing happens only after confirmation.
@@ -97,7 +97,8 @@ Large FITS hashing happens only after confirmation.
 After the user clearly confirms once:
 
 ```text
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-black-point/bin/black-point confirm-fresh --project "<project>" && /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-black-point/bin/black-point advance --project "<project>"
+/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-black-point/bin/black-point confirm-fresh --project "<project>"
+/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-black-point/bin/black-point advance --project "<project>"
 ```
 
 `confirm-fresh` binds durable authorization to:
@@ -109,41 +110,15 @@ After the user clearly confirms once:
 State:
 
 ```text
-<project>/.siril-black-point-v1.0.6/fresh-intent.json
+<project>/.siril-black-point-v1.0.5/fresh-intent.json
 ```
 
 If the binding remains valid, do not ask again after interruption.
 
-For a completed/current canonical, v1.0.6 bridges through the preserved
-v1.0.4 wrapper's own `advance → confirm-fresh` durability. For a strongly
-authorized upstream-obsolete canonical, v1.0.6 uses one private, exact-error
-compatibility bridge so v1.0.4 may generate replacement candidates while the
-old canonical remains in place. The bridge is not a public flag and is accepted
-only for the single source-SHA mismatch status; any additional canonical error
-still fails closed.
-
-A matching hash-bound v1.0.5 authorization remains valid after upgrade. Never
-ask the user to reconfirm an already-authorized replacement whose source,
-canonical manifest, and canonical output hashes still match.
-
-## Authorized-obsolete recovery and speed contract
-
-After strong fresh authorization, an upstream source mismatch is an expected
-replacement condition, not an invitation to investigate the filesystem.
-
-The skill must never recover by moving, renaming, hiding, or deleting
-`processing/black-point`. Candidate generation occurs beside the canonical and
-the preserved v1.0.4 publication path performs the safe replacement only after
-selection succeeds.
-
-If an unexpected blocker occurs after authorization, stop and report the exact
-returned error. Do not use `ls`, `find`, `tree`, `grep`, `jq`, globbing, manual
-manifest inspection, or source-code inspection to improvise recovery.
-
-After the user confirms, use one Exec containing `confirm-fresh && advance`.
-If `advance` is still running, poll that same process/session rather than
-starting another run. Read each exact returned preview path once, then perform
-one compact `select-publish` call (apart from bounded formatting-only retries).
+For a completed/current canonical, v1.0.5 also bridges through the preserved
+v1.0.4 wrapper's own `advance → confirm-fresh` durability. For an
+upstream-obsolete canonical, the preserved v1.0.4 wrapper already treats the
+old result as needing reprocessing, so no private helper bypass is added.
 
 ## Processing/review/publication contract remains v1.0.4
 

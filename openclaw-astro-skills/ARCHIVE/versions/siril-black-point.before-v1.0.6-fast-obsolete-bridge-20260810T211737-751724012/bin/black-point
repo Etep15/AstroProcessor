@@ -6,7 +6,7 @@ ORCH="$SCRIPT_DIR/../scripts/black_point_orchestrator.py"
 LEGACY="${BLACK_POINT_LEGACY_WRAPPER:-$SCRIPT_DIR/black-point-v1.0.4}"
 
 if [ "${1:-}" = "--version" ]; then
-  printf '1.0.6\n'
+  printf '1.0.5\n'
   exit 0
 fi
 

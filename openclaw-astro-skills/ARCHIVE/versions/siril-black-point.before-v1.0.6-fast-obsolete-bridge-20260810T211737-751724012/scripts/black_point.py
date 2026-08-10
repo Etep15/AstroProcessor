@@ -944,24 +944,6 @@ def validate_run_record(
         raise BlackPointError("Run source SHA does not match current GHS pass-2 source.")
 
 
-def private_authorized_obsolete_canonical(canonical: dict[str, Any]) -> bool:
-    """Allow only the exact strongly-authorized upstream-source mismatch path."""
-    sha = canonical.get("canonical_output_sha256")
-    return (
-        __import__("os").environ.get("BLACK_POINT_AUTHORIZED_OBSOLETE") == "1"
-        and canonical.get("status") == "invalid"
-        and canonical.get("errors") == ["canonical source SHA differs from current upstream"]
-        and not canonical.get("policy_errors")
-        and canonical.get("manifest_helper_version") == VERSION
-        and canonical.get("canonical_manifest_compatible") is False
-        and canonical.get("selection_policy_status") == "not_current"
-        and canonical.get("visual_review_completed") is True
-        and canonical.get("green_reduction_processing_permitted") is False
-        and isinstance(sha, str)
-        and len(sha) == 64
-        and all(ch in "0123456789abcdef" for ch in sha)
-    )
-
 def run_project(
     *,
     workspace: Path,
@@ -1020,12 +1002,11 @@ def run_project(
                 )
             fresh_auth_path, fresh_auth = authorized
         else:
-            if not private_authorized_obsolete_canonical(canonical):
-                raise BlackPointError(
-                    "Existing black-point canonical result is invalid rather than "
-                    "merely policy-obsolete. Preserve it and resolve the status "
-                    "errors before starting replacement processing."
-                )
+            raise BlackPointError(
+                "Existing black-point canonical result is invalid rather than "
+                "merely policy-obsolete. Preserve it and resolve the status "
+                "errors before starting replacement processing."
+            )
 
     siril = siril_version()
     params = candidate_parameters(paths["upstream_output"])
