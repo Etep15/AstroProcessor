@@ -20,7 +20,7 @@ import numpy as np
 from astropy.io import fits
 
 
-VERSION = "1.4.1"
+VERSION = "1.4.0"
 WORKSPACE = Path(
     "/home/peter/.openclaw/workspace/agents/codewarrior"
 )
@@ -2107,14 +2107,14 @@ def policy_self_test() -> dict[str, Any]:
 
 
 
-# ===== v1.4.1 calibrated direct-visibility / post-black-point policy =====
-# This block replaces the v1.4.0 override. It preserves the audited v1.3.1
-# Siril execution, preview generation, inverse-GHT roundtrip, provenance and
-# publication implementation, but changes candidate planning and ranking using
-# the non-destructive 12-point M16 calibration performed on 2026-08-11.
+# ===== v1.4.0 dynamic-range expansion policy (injected by installer) =====
+# This block intentionally overrides only adaptive candidate planning, histogram
+# classification/recommendation and policy self-test. Siril execution, preview,
+# inverse-GHT roundtrip, provenance, publication and FITS safety code remain the
+# audited v1.3.1 implementation.
 
 PARAMETER_BOUNDS = {
-    "D": {"minimum": 2.0, "maximum": 6.50},
+    "D": {"minimum": 2.0, "maximum": 5.5},
     "B": {"minimum": 1.0, "maximum": 8.0},
     "SP": {"minimum": 0.0020, "maximum": 0.0300},
     "LP": {"minimum": 0.0, "maximum": 0.0},
@@ -2122,147 +2122,64 @@ PARAMETER_BOUNDS = {
 }
 
 SELECTION_TARGETS = {
-    "calibration_basis": "M16-v1.4.1-12-point-stride4",
-    "direct_no_autostretch_visibility_required": True,
-    "balanced_median_minimum": 0.20,
-    "balanced_median_maximum": 0.42,
-    "minimum_output_luma_p99": 0.30,
-    "maximum_output_luma_p99": 0.70,
-    "maximum_output_value": 0.82,
-    "minimum_preferred_luma_correlation": 0.985,
-    "minimum_p99_to_p10_ratio": 1.30,
-    "preferred_p99_to_p10_ratio": 1.45,
-    "target_p99_to_p10_ratio": 1.55,
-    "minimum_p99_minus_p10": 0.080,
-    "preferred_p99_minus_p10": 0.120,
-    "minimum_post_bp_0_008_median": 0.030,
-    "minimum_post_bp_0_008_p99": 0.150,
-    "preferred_post_bp_0_008_median": 0.050,
-    "preferred_post_bp_0_008_p99": 0.200,
+    # Median is deliberately broad/advisory. Histogram separation is primary.
+    "balanced_median_minimum": 0.080,
+    "balanced_median_maximum": 0.240,
+    "output_luma_median": 0.150,
+    "maximum_output_luma_p99": 0.780,
+    "maximum_output_value": 0.950,
+    "minimum_preferred_luma_correlation": 0.970,
+    "minimum_p99_to_median_ratio": 1.20,
+    "preferred_p99_to_median_ratio": 1.25,
+    "target_p99_to_median_ratio": 1.40,
+    "minimum_p99_minus_median": 0.025,
+    "preferred_p99_minus_median": 0.045,
     "source_relative_percentile_shape": False,
     "median_is_primary_target": False,
-    "post_black_point_simulation_is_diagnostic_only": True,
 }
 
-_GHS141_SOURCE_STATS = None
+_GHS140_SOURCE_STATS = None
 
 
-def _ghs141_source_stats(path: Path) -> dict[str, float]:
-    luma = luma_sample(path)
-    if luma.size < 100:
-        raise GhsStretchError("Not enough finite source samples for v1.4.1 source-aware planning.")
+def _ghs140_source_stats(path: Path) -> dict[str, float]:
+    with fits.open(path, memmap=True) as hdul:
+        data = np.asarray(hdul[0].data[:, ::4, ::4], dtype=np.float32)
+    luma = np.mean(data, axis=0)
+    finite = luma[np.isfinite(luma)]
+    if finite.size < 100:
+        raise GhsStretchError("Not enough finite source samples for v1.4.0 source-aware planning.")
     return {
-        "median": float(np.quantile(luma, 0.50)),
-        "p90": float(np.quantile(luma, 0.90)),
-        "p95": float(np.quantile(luma, 0.95)),
-        "p99": float(np.quantile(luma, 0.99)),
+        "median": float(np.percentile(finite, 50.0)),
+        "p90": float(np.percentile(finite, 90.0)),
+        "p95": float(np.percentile(finite, 95.0)),
+        "p99": float(np.percentile(finite, 99.0)),
+        "p995": float(np.percentile(finite, 99.5)),
     }
 
 
-def _ghs141_sp(value: float) -> float:
+def _ghs140_sp(value: float) -> float:
     return round(clamp_parameter("SP", value), 5)
 
 
-def _ghs141_post_bp(luma: np.ndarray, target_floor: float) -> dict[str, float]:
-    p001 = float(np.quantile(luma, 0.001))
-    bp = (p001 - target_floor) / max(1.0 - target_floor, 1.0e-12)
-    bp = min(max(bp, 0.0), 0.95)
-    y = np.clip((luma - bp) / max(1.0 - bp, 1.0e-12), 0.0, 1.0)
-    p10 = float(np.quantile(y, 0.10))
-    median = float(np.quantile(y, 0.50))
-    p90 = float(np.quantile(y, 0.90))
-    p99 = float(np.quantile(y, 0.99))
-    return {
-        "estimated_BP": bp,
-        "p10": p10,
-        "median": median,
-        "p90": p90,
-        "p99": p99,
-        "p99_minus_p10": p99 - p10,
-        "p99_to_p10": p99 / max(p10, 1.0e-12),
-        "low_clip_fraction": float(np.mean(y <= 0.0)),
-    }
-
-
-def _ghs141_dynamic_output_metrics(path: Path) -> dict[str, float]:
-    luma = luma_sample(path)
-    p001 = float(np.quantile(luma, 0.001))
-    p10 = float(np.quantile(luma, 0.10))
-    p25 = float(np.quantile(luma, 0.25))
-    median = float(np.quantile(luma, 0.50))
-    p75 = float(np.quantile(luma, 0.75))
-    p90 = float(np.quantile(luma, 0.90))
-    p95 = float(np.quantile(luma, 0.95))
-    p99 = float(np.quantile(luma, 0.99))
-    p995 = float(np.quantile(luma, 0.995))
-    bp008 = _ghs141_post_bp(luma, 0.0080)
-    bp0045 = _ghs141_post_bp(luma, 0.0045)
-    bp0025 = _ghs141_post_bp(luma, 0.0025)
-    result = {
-        "output_luma_p001": p001,
-        "output_luma_p10": p10,
-        "output_luma_p25": p25,
-        "output_luma_p75": p75,
-        "output_luma_p95": p95,
-        "output_luma_p995": p995,
-        "output_p90_minus_p10": p90 - p10,
-        "output_p99_minus_p10": p99 - p10,
-        "output_p90_to_p10": p90 / max(p10, 1.0e-12),
-        "output_p99_to_p10": p99 / max(p10, 1.0e-12),
-        "post_bp_0_008_estimated_BP": bp008["estimated_BP"],
-        "post_bp_0_008_p10": bp008["p10"],
-        "post_bp_0_008_median": bp008["median"],
-        "post_bp_0_008_p90": bp008["p90"],
-        "post_bp_0_008_p99": bp008["p99"],
-        "post_bp_0_008_p99_minus_p10": bp008["p99_minus_p10"],
-        "post_bp_0_008_p99_to_p10": bp008["p99_to_p10"],
-        "post_bp_0_008_low_clip_fraction": bp008["low_clip_fraction"],
-        "post_bp_0_0045_median": bp0045["median"],
-        "post_bp_0_0045_p99": bp0045["p99"],
-        "post_bp_0_0025_median": bp0025["median"],
-        "post_bp_0_0025_p99": bp0025["p99"],
-    }
-    return result
-
-
 def baseline_parameters() -> dict[str, float]:
-    stats = _GHS141_SOURCE_STATS
-    source_p99 = 0.00623 if stats is None else stats["p99"]
+    stats = _GHS140_SOURCE_STATS
+    if stats is None:
+        # Synthetic self-test fallback. Real project/probe runs populate source
+        # statistics before candidate planning.
+        source_p99 = 0.00710
+    else:
+        source_p99 = stats["p99"]
     return normalize_parameters({
-        "D": 5.75,
-        "B": 4.00,
-        "SP": _ghs141_sp(source_p99),
+        # The first v1.4.0 probe showed D=4.55/B=4.50/SP≈1.10*p99 was still
+        # technically safe and already close to the hard separation gate.
+        # Start the bounded search there rather than spending candidate-00 on
+        # another deliberately weak stretch.
+        "D": 4.55,
+        "B": 4.50,
+        "SP": _ghs140_sp(source_p99 * 1.10),
         "LP": 0.0,
-        "HP": 0.860,
+        "HP": 0.880,
     })
-
-
-def plan_second_candidate(baseline: dict[str, Any]) -> tuple[dict[str, float], str]:
-    stats = _GHS141_SOURCE_STATS
-    source_p95 = float(baseline["quality_assessment"]["metrics"]["source_luma_p99"]) if stats is None else stats["p95"]
-    if baseline.get("histogram_classification") == "too_strong":
-        proposed = {"D": 5.50, "B": 3.75, "SP": source_p95, "LP": 0.0, "HP": 0.870}
-        reason = "Calibration-derived fallback: candidate-00 was too strong, so step back while retaining broad direct-display separation."
-        direction = "gentler"
-    else:
-        proposed = {"D": 6.00, "B": 3.50, "SP": source_p95, "LP": 0.0, "HP": 0.860}
-        reason = "Calibration-derived balanced-strong candidate: D=6.00, B=3.50, SP at source p95 was among the best M16 visibility/separation combinations."
-        direction = "stronger"
-    return ensure_unique_parameters(proposed, [baseline["parameters"]], preferred_direction=direction), reason
-
-
-def plan_third_candidate(baseline: dict[str, Any], second: dict[str, Any]) -> tuple[dict[str, float], str]:
-    stats = _GHS141_SOURCE_STATS
-    source_p95 = float(second["quality_assessment"]["metrics"]["source_luma_p99"]) if stats is None else stats["p95"]
-    if second.get("histogram_classification") == "too_strong":
-        proposed = {"D": 5.85, "B": 3.50, "SP": source_p95, "LP": 0.0, "HP": 0.865}
-        reason = "Candidate-01 was too strong; use the final bounded comparison between the moderate and calibrated-strong settings."
-        direction = "gentler"
-    else:
-        proposed = {"D": 6.25, "B": 3.50, "SP": source_p95, "LP": 0.0, "HP": 0.850}
-        reason = "Calibration winner: D=6.25, B=3.50, SP at source p95 produced the best direct visibility, p10-to-p99 separation and post-black-point survival in the 12-point M16 sweep."
-        direction = "stronger"
-    return ensure_unique_parameters(proposed, [baseline["parameters"], second["parameters"]], preferred_direction=direction), reason
 
 
 def histogram_classification(metrics: dict[str, Any]) -> str:
@@ -2271,62 +2188,154 @@ def histogram_classification(metrics: dict[str, Any]) -> str:
     maximum = float(metrics["output_maximum"])
     low_clip = float(metrics["low_clip_fraction"])
     high_clip = float(metrics["high_clip_fraction"])
-    if low_clip > 0.0 or high_clip > 0.0 or median > SELECTION_TARGETS["balanced_median_maximum"] or p99 > SELECTION_TARGETS["maximum_output_luma_p99"] or maximum > SELECTION_TARGETS["maximum_output_value"]:
+    ratio = p99 / max(median, 1.0e-12)
+    spread = p99 - median
+    if (
+        low_clip > 0.0
+        or high_clip > 0.0
+        or median > SELECTION_TARGETS["balanced_median_maximum"]
+        or p99 > SELECTION_TARGETS["maximum_output_luma_p99"]
+        or maximum > SELECTION_TARGETS["maximum_output_value"]
+    ):
         return "too_strong"
-    # The original execute_candidate calls classification before the v1.4.1
-    # wrapper has injected p10/post-BP metrics. Use only a permissive interim
-    # check in that one internal call; the wrapper immediately reclassifies.
-    if "output_luma_p10" not in metrics:
-        return "too_gentle" if median < 0.15 or p99 < 0.24 else "balanced"
-    p10 = float(metrics["output_luma_p10"])
-    ratio = p99 / max(p10, 1.0e-12)
-    spread = p99 - p10
     if (
         median < SELECTION_TARGETS["balanced_median_minimum"]
-        or p99 < SELECTION_TARGETS["minimum_output_luma_p99"]
-        or ratio < SELECTION_TARGETS["minimum_p99_to_p10_ratio"]
-        or spread < SELECTION_TARGETS["minimum_p99_minus_p10"]
-        or float(metrics["post_bp_0_008_median"]) < SELECTION_TARGETS["minimum_post_bp_0_008_median"]
-        or float(metrics["post_bp_0_008_p99"]) < SELECTION_TARGETS["minimum_post_bp_0_008_p99"]
+        or ratio < SELECTION_TARGETS["minimum_p99_to_median_ratio"]
+        or spread < SELECTION_TARGETS["minimum_p99_minus_median"]
     ):
         return "too_gentle"
     return "balanced"
 
 
+def plan_second_candidate(baseline: dict[str, Any]) -> tuple[dict[str, float], str]:
+    metrics = baseline["quality_assessment"]["metrics"]
+    source_p99 = float(metrics["source_luma_p99"])
+    classification = baseline["histogram_classification"]
+    if classification == "too_strong":
+        proposed = {
+            "D": 4.20,
+            "B": 4.00,
+            "SP": source_p99 * 1.07,
+            "LP": 0.0,
+            "HP": 0.890,
+        }
+        reason = (
+            "Candidate-00 crossed the broad pass-1 brightness/headroom gate; "
+            "step back modestly while retaining substantially more separation "
+            "than the historical median-first policy."
+        )
+        direction = "gentler"
+    else:
+        proposed = {
+            "D": 4.90,
+            "B": 5.25,
+            "SP": source_p99 * 1.16,
+            "LP": 0.0,
+            "HP": 0.870,
+        }
+        reason = (
+            "Candidate-00 remained below the preferred pass-1 separation target; "
+            "increase D and B and move SP farther into the upper source signal "
+            "to expand p99/median rather than merely lifting the histogram."
+        )
+        direction = "stronger"
+    return ensure_unique_parameters(
+        proposed, [baseline["parameters"]], preferred_direction=direction
+    ), reason
+
+
+def plan_third_candidate(baseline: dict[str, Any], second: dict[str, Any]) -> tuple[dict[str, float], str]:
+    metrics = second["quality_assessment"]["metrics"]
+    median = float(metrics["output_luma_median"])
+    p99 = float(metrics["output_luma_p99"])
+    ratio = p99 / max(median, 1.0e-12)
+    spread = p99 - median
+    source_p99 = float(metrics["source_luma_p99"])
+    p = second["parameters"]
+    classification = second["histogram_classification"]
+
+    if classification == "too_strong":
+        # Interpolate back toward candidate-00 rather than jumping to the old
+        # weak parameter region.
+        proposed = {
+            "D": 4.70,
+            "B": 4.80,
+            "SP": source_p99 * 1.13,
+            "LP": 0.0,
+            "HP": 0.880,
+        }
+        reason = (
+            "Candidate-01 was too strong; test an intermediate dynamic-range "
+            "expansion between candidate-00 and candidate-01."
+        )
+        direction = "gentler"
+    elif (
+        ratio < SELECTION_TARGETS["preferred_p99_to_median_ratio"]
+        or spread < SELECTION_TARGETS["preferred_p99_minus_median"]
+    ):
+        proposed = {
+            "D": min(5.35, p["D"] + 0.45),
+            "B": min(6.50, p["B"] + 1.25),
+            "SP": source_p99 * 1.24,
+            "LP": 0.0,
+            "HP": 0.850,
+        }
+        reason = (
+            "Candidate-01 is still below the preferred separation target; "
+            "use the final bounded candidate for a stronger but still "
+            "highlight-protected expansion aimed at >=1.25 p99/median."
+        )
+        direction = "stronger"
+    else:
+        proposed = {
+            "D": min(5.20, p["D"] + 0.25),
+            "B": max(4.25, p["B"] - 0.50),
+            "SP": source_p99 * 1.18,
+            "LP": 0.0,
+            "HP": 0.870,
+        }
+        reason = (
+            "Candidate-01 already meets the preferred separation target; "
+            "generate one broader comparison candidate without reverting to "
+            "median-first optimization."
+        )
+        direction = "stronger"
+
+    return ensure_unique_parameters(
+        proposed,
+        [baseline["parameters"], second["parameters"]],
+        preferred_direction=direction,
+    ), reason
+
+
 def candidate_selection_score(quality_assessment: dict[str, Any]) -> float:
-    m = quality_assessment["metrics"]
-    median = max(float(m["output_luma_median"]), 1.0e-12)
-    p99 = max(float(m["output_luma_p99"]), median)
-    corr = float(m["luma_correlation"])
-    maximum = float(m["output_maximum"])
-    low_clip = float(m["low_clip_fraction"])
-    high_clip = float(m["high_clip_fraction"])
-    if "output_luma_p10" not in m:
-        return float(0.50 * abs(math.log(median / 0.30)) + 3.0 * max(0.0, 0.30 - p99) + 100.0 * (low_clip + high_clip))
-    p10 = float(m["output_luma_p10"])
-    ratio = p99 / max(p10, 1.0e-12)
-    spread = p99 - p10
-    bp_med = float(m["post_bp_0_008_median"])
-    bp_p99 = float(m["post_bp_0_008_p99"])
+    metrics = quality_assessment["metrics"]
+    median = max(float(metrics["output_luma_median"]), 1.0e-12)
+    p99 = max(float(metrics["output_luma_p99"]), median)
+    ratio = p99 / median
+    spread = p99 - median
+    corr = float(metrics["luma_correlation"])
+    maximum = float(metrics["output_maximum"])
+    low_clip = float(metrics["low_clip_fraction"])
+    high_clip = float(metrics["high_clip_fraction"])
+    roundtrip = float(metrics["roundtrip_relative_rms"])
+    # Dynamic-range deficits dominate. Median proximity is intentionally mild.
     score = (
-        0.25 * abs(math.log(median / 0.30))
-        + 0.80 * abs(ratio - 1.55)
-        + 2.50 * abs(spread - 0.150)
-        + 0.80 * abs(bp_med - 0.060)
-        + 0.80 * abs(bp_p99 - 0.240)
-        + 2.50 * max(0.0, SELECTION_TARGETS["minimum_preferred_luma_correlation"] - corr)
-        + 3.00 * max(0.0, maximum - 0.70)
+        0.35 * abs(math.log(median / SELECTION_TARGETS["output_luma_median"]))
+        + 1.80 * max(0.0, SELECTION_TARGETS["target_p99_to_median_ratio"] - ratio)
+        + 7.00 * max(0.0, SELECTION_TARGETS["preferred_p99_minus_median"] - spread)
+        + 3.00 * max(0.0, SELECTION_TARGETS["minimum_preferred_luma_correlation"] - corr)
+        + 4.00 * max(0.0, maximum - 0.90)
         + 100.0 * (low_clip + high_clip)
+        + min(roundtrip * 1000.0, 2.0)
     )
     return float(score)
 
 
 def candidate_publication_eligible(candidate: dict[str, Any]) -> bool:
-    m = candidate.get("quality_assessment", {}).get("metrics", {})
     return (
         candidate.get("quality_assessment", {}).get("satisfactory") is True
         and candidate.get("histogram_classification") == "balanced"
-        and float(m.get("luma_correlation", 0.0)) >= SELECTION_TARGETS["minimum_preferred_luma_correlation"]
     )
 
 
@@ -2341,7 +2350,7 @@ def publication_gate(candidates: list[dict[str, Any]]) -> dict[str, Any]:
             "final_candidate_too_strong": final_classification == "too_strong",
             "bounded_search_exhausted_too_strong": bool(final_classification == "too_strong" and len(candidates) >= MAX_CANDIDATES_LIMIT),
             "publication_eligible_candidates": [],
-            "reason": "No bounded v1.4.1 pass-1 candidate achieved calibrated direct-visibility, p10-to-p99 separation, technical safety and post-black-point survival gates.",
+            "reason": "No bounded pass-1 candidate achieved both technical safety and the v1.4.0 minimum histogram-separation gate.",
         }
     return {
         "status": "awaiting_visual_selection",
@@ -2350,7 +2359,7 @@ def publication_gate(candidates: list[dict[str, Any]]) -> dict[str, Any]:
         "final_candidate_too_strong": final_classification == "too_strong",
         "bounded_search_exhausted_too_strong": False,
         "publication_eligible_candidates": eligible,
-        "reason": "At least one technically safe candidate satisfies the calibration-derived pass-1 dynamic-range and diagnostic post-black-point gates; direct/no-autostretch visual selection remains authoritative.",
+        "reason": "At least one technically safe candidate creates materially broader pass-1 signal separation; visual selection may compare all eligible candidates.",
     }
 
 
@@ -2362,83 +2371,55 @@ def recommended_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | 
 
 
 def policy_self_test() -> dict[str, Any]:
-    old_v140 = {
-        "output_luma_p10": 0.156, "output_luma_median": 0.161, "output_luma_p99": 0.194,
-        "output_maximum": 0.418, "low_clip_fraction": 0.0, "high_clip_fraction": 0.0,
-        "post_bp_0_008_median": 0.021, "post_bp_0_008_p99": 0.059,
+    compressed = {
+        "output_luma_median": 0.10, "output_luma_p99": 0.111,
+        "output_maximum": 0.20, "low_clip_fraction": 0.0, "high_clip_fraction": 0.0,
     }
-    calibrated = {
-        "output_luma_p10": 0.284, "output_luma_median": 0.304, "output_luma_p99": 0.452,
-        "output_maximum": 0.624, "low_clip_fraction": 0.0, "high_clip_fraction": 0.0,
-        "post_bp_0_008_median": 0.067, "post_bp_0_008_p99": 0.265,
+    expanded = {
+        "output_luma_median": 0.14, "output_luma_p99": 0.20,
+        "output_maximum": 0.45, "low_clip_fraction": 0.0, "high_clip_fraction": 0.0,
     }
     too_bright = {
-        "output_luma_p10": 0.40, "output_luma_median": 0.46, "output_luma_p99": 0.74,
-        "output_maximum": 0.88, "low_clip_fraction": 0.0, "high_clip_fraction": 0.0,
-        "post_bp_0_008_median": 0.12, "post_bp_0_008_p99": 0.45,
+        "output_luma_median": 0.30, "output_luma_p99": 0.50,
+        "output_maximum": 0.70, "low_clip_fraction": 0.0, "high_clip_fraction": 0.0,
     }
-    if histogram_classification(old_v140) != "too_gentle":
-        raise GhsStretchError("v1.4.1 policy self-test failed to reject the visibly dim v1.4.0 production distribution.")
-    if histogram_classification(calibrated) != "balanced":
-        raise GhsStretchError("v1.4.1 policy self-test failed to accept the calibration-derived distribution.")
+    if histogram_classification(compressed) != "too_gentle":
+        raise GhsStretchError("v1.4.0 policy self-test failed to reject compressed histogram.")
+    if histogram_classification(expanded) != "balanced":
+        raise GhsStretchError("v1.4.0 policy self-test failed to accept expanded histogram.")
     if histogram_classification(too_bright) != "too_strong":
-        raise GhsStretchError("v1.4.1 policy self-test failed to enforce highlight/headroom ceiling.")
+        raise GhsStretchError("v1.4.0 policy self-test failed to enforce broad brightness ceiling.")
     return {
         "status": "success",
-        "policy_revision": "dynamic-range-expansion-v2",
-        "calibration_basis": "M16-v1.4.1-12-point-stride4",
-        "direct_no_autostretch_visibility_required": True,
-        "source_relative_percentile_shape": False,
+        "policy_revision": "dynamic-range-expansion-v1",
         "median_is_primary_target": False,
-        "minimum_p99_to_p10_ratio": SELECTION_TARGETS["minimum_p99_to_p10_ratio"],
-        "preferred_p99_to_p10_ratio": SELECTION_TARGETS["preferred_p99_to_p10_ratio"],
-        "minimum_p99_minus_p10": SELECTION_TARGETS["minimum_p99_minus_p10"],
-        "minimum_post_bp_0_008_median": SELECTION_TARGETS["minimum_post_bp_0_008_median"],
-        "minimum_post_bp_0_008_p99": SELECTION_TARGETS["minimum_post_bp_0_008_p99"],
+        "source_relative_percentile_shape": False,
+        "minimum_p99_to_median_ratio": SELECTION_TARGETS["minimum_p99_to_median_ratio"],
+        "preferred_p99_to_median_ratio": SELECTION_TARGETS["preferred_p99_to_median_ratio"],
+        "minimum_p99_minus_median": SELECTION_TARGETS["minimum_p99_minus_median"],
         "parameter_bounds": PARAMETER_BOUNDS,
     }
 
 
-_ghs141_original_execute_candidate = execute_candidate
-
-
-def execute_candidate(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    candidate = _ghs141_original_execute_candidate(*args, **kwargs)
-    output = Path(str(candidate.get("output", {}).get("path", "")))
-    if not output.is_file():
-        raise GhsStretchError(f"v1.4.1 candidate output is missing for dynamic-range assessment: {output}")
-    metrics = candidate["quality_assessment"]["metrics"]
-    metrics.update(_ghs141_dynamic_output_metrics(output))
-    candidate["histogram_classification"] = histogram_classification(metrics)
-    candidate["selection_score"] = candidate_selection_score(candidate["quality_assessment"])
-    candidate["processing_policy_revision"] = "dynamic-range-expansion-v2"
-    candidate["direct_no_autostretch_visibility_required"] = True
-    return candidate
-
-
-_ghs141_original_run_project = run_project
+_ghs140_original_run_project = run_project
 
 
 def run_project(*, workspace: Path, project_name: str, timeout_seconds: int, fresh_run: bool, max_candidates: int) -> dict[str, Any]:
-    global _GHS141_SOURCE_STATS
+    global _GHS140_SOURCE_STATS
     paths = project_paths(workspace, project_name)
-    _GHS141_SOURCE_STATS = _ghs141_source_stats(paths["source"])
+    _GHS140_SOURCE_STATS = _ghs140_source_stats(paths["source"])
     try:
-        result = _ghs141_original_run_project(
+        return _ghs140_original_run_project(
             workspace=workspace,
             project_name=project_name,
             timeout_seconds=timeout_seconds,
             fresh_run=fresh_run,
             max_candidates=max_candidates,
         )
-        result["processing_policy_revision"] = "dynamic-range-expansion-v2"
-        result["calibration_basis"] = "M16-v1.4.1-12-point-stride4"
-        result["direct_no_autostretch_visibility_required"] = True
-        return result
     finally:
-        _GHS141_SOURCE_STATS = None
+        _GHS140_SOURCE_STATS = None
 
-# ===== end v1.4.1 override =====
+# ===== end v1.4.0 override =====
 
 
 def self_test(timeout_seconds: int) -> dict[str, Any]:

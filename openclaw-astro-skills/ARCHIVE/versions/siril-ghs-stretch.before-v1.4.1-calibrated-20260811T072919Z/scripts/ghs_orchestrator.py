@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-VERSION = "1.4.1"
-PROCESSING_ENGINE_VERSION = "1.4.1"
+VERSION = "1.4.0"
+PROCESSING_ENGINE_VERSION = "1.4.0"
 
 WORKSPACE = Path("/home/peter/.openclaw/workspace/agents/codewarrior")
 PROJECTS_ROOT = WORKSPACE / "Projects"
@@ -25,9 +25,9 @@ CANONICAL_DIR_REL = Path("processing/ghs-pass1")
 CANONICAL_MANIFEST_REL = CANONICAL_DIR_REL / "ghs-pass1-manifest.json"
 CANONICAL_OUTPUT_REL = CANONICAL_DIR_REL / "SHO-starless-ghs-pass1.fit"
 REVIEW_RECORD_REL = CANONICAL_DIR_REL / "visual-selection-record-v1.3.2.json"
-STATE_DIR_NAME = ".siril-ghs-stretch-v1.4.1"
+STATE_DIR_NAME = ".siril-ghs-stretch-v1.4.0"
 
-REVIEW_FIELDS = ("visibility", "stretch", "structure", "color", "noise", "highlights")
+REVIEW_FIELDS = ("stretch", "structure", "color", "noise", "highlights")
 
 
 class OrchestrationError(RuntimeError):
@@ -43,7 +43,7 @@ def stamp() -> str:
 
 
 def sha256_file(path: Path) -> str:
-    if os.environ.get("GHS141_FORBID_FITS_HASH") == "1" and path.suffix.lower() in {".fit", ".fits", ".fts"}:
+    if os.environ.get("GHS140_FORBID_FITS_HASH") == "1" and path.suffix.lower() in {".fit", ".fits", ".fts"}:
         raise OrchestrationError(f"Large FITS hashing forbidden in manifest-first mode: {path}")
     h = hashlib.sha256()
     with path.open("rb") as fh:
@@ -340,14 +340,11 @@ def build_state(project_name: str, engine: dict[str, Any], fresh: bool, intent: 
         if not before.is_file():
             raise OrchestrationError(f"Before-linked preview is missing: {before}")
         metrics = c.get("quality_assessment", {}).get("metrics", {})
-        p10 = metrics.get("output_luma_p10")
         median = metrics.get("output_luma_median")
         p90 = metrics.get("output_luma_p90")
         p99 = metrics.get("output_luma_p99")
         ratio = (float(p99) / max(float(median), 1.0e-12)) if median is not None and p99 is not None else None
         spread = (float(p99) - float(median)) if median is not None and p99 is not None else None
-        p99_to_p10 = (float(p99) / max(float(p10), 1.0e-12)) if p10 is not None and p99 is not None else None
-        p99_minus_p10 = (float(p99) - float(p10)) if p10 is not None and p99 is not None else None
         candidates[name] = {
             "candidate": name,
             "parameters": c.get("parameters"),
@@ -358,17 +355,11 @@ def build_state(project_name: str, engine: dict[str, Any], fresh: bool, intent: 
             "before_preview": str(before),
             "before_preview_sha256": sha256_file(before),
             "output_sha256": c.get("output", {}).get("sha256"),
-            "output_luma_p10": p10,
             "output_luma_median": median,
             "output_luma_p90": p90,
             "output_luma_p99": p99,
             "output_p99_to_median_ratio": ratio,
             "output_p99_minus_median": spread,
-            "output_p99_to_p10_ratio": p99_to_p10,
-            "output_p99_minus_p10": p99_minus_p10,
-            "post_bp_0_008_median": metrics.get("post_bp_0_008_median"),
-            "post_bp_0_008_p99": metrics.get("post_bp_0_008_p99"),
-            "post_bp_0_008_p99_minus_p10": metrics.get("post_bp_0_008_p99_minus_p10"),
             "output_maximum": metrics.get("output_maximum"),
             "luma_correlation": metrics.get("luma_correlation"),
         }
@@ -377,7 +368,7 @@ def build_state(project_name: str, engine: dict[str, Any], fresh: bool, intent: 
         "schema_version": 2,
         "orchestration_version": VERSION,
         "processing_engine_version": PROCESSING_ENGINE_VERSION,
-        "processing_policy_revision": "dynamic-range-expansion-v2",
+        "processing_policy_revision": "dynamic-range-expansion-v1",
         "status": "awaiting_visual_selection",
         "created_at": utc_now(),
         "project_name": project_name,
@@ -411,7 +402,7 @@ def load_active(project_name: str) -> tuple[dict[str, Path], dict[str, Any]] | N
         return None
     s = load_json(p["active"])
     if s.get("orchestration_version") != VERSION or s.get("processing_engine_version") != PROCESSING_ENGINE_VERSION:
-        raise OrchestrationError("Active GHS run belongs to an older processing policy and cannot be resumed under v1.4.1.")
+        raise OrchestrationError("Active GHS run belongs to an older processing policy and cannot be resumed under v1.4.0.")
     if s.get("status") != "awaiting_visual_selection":
         raise OrchestrationError(f"Unexpected active GHS state: {s.get('status')!r}")
     if s.get("source_sha256") != sha256_file(p["source"]):
@@ -443,25 +434,18 @@ def review_plan(state: dict[str, Any]) -> dict[str, Any]:
             "candidate": name,
             "parameters": c.get("parameters"),
             "histogram_classification": c.get("histogram_classification"),
-            "output_luma_p10": c.get("output_luma_p10"),
             "output_luma_median": c.get("output_luma_median"),
             "output_luma_p90": c.get("output_luma_p90"),
             "output_luma_p99": c.get("output_luma_p99"),
             "output_p99_to_median_ratio": c.get("output_p99_to_median_ratio"),
             "output_p99_minus_median": c.get("output_p99_minus_median"),
-            "output_p99_to_p10_ratio": c.get("output_p99_to_p10_ratio"),
-            "output_p99_minus_p10": c.get("output_p99_minus_p10"),
-            "post_bp_0_008_median": c.get("post_bp_0_008_median"),
-            "post_bp_0_008_p99": c.get("post_bp_0_008_p99"),
-            "post_bp_0_008_p99_minus_p10": c.get("post_bp_0_008_p99_minus_p10"),
             "output_maximum": c.get("output_maximum"),
             "luma_correlation": c.get("luma_correlation"),
             "recommended": name == state.get("recommended_candidate"),
         })
         note_templates.append(
-            f'--note "{name}=visibility:<specific direct/no-autostretch visibility observation>; '
-            'stretch:<specific contrast/histogram-spread observation>; '
-            'structure:<specific target morphology/faint-detail observation>; '
+            f'--note "{name}=stretch:<specific contrast/histogram-spread observation>; '
+            'structure:<specific faint nebula/Pillars/dark-lanes observation>; '
             'color:<specific SHO colour observation>; '
             'noise:<specific noise/grain observation>; '
             'highlights:<specific highlight/clipping observation>"'
@@ -471,7 +455,7 @@ def review_plan(state: dict[str, Any]) -> dict[str, Any]:
         "action": "continue_autonomously_to_publication",
         "orchestration_version": VERSION,
         "processing_engine_version": PROCESSING_ENGINE_VERSION,
-        "processing_policy_revision": "dynamic-range-expansion-v2",
+        "processing_policy_revision": "dynamic-range-expansion-v1",
         "project_name": state["project_name"],
         "run_root": state["run_root"],
         "publication_eligible_candidates": eligible,
@@ -486,31 +470,19 @@ def review_plan(state: dict[str, Any]) -> dict[str, Any]:
             "on_read_failure": "stop_and_report_exact_failed_path",
         },
         "selection_rule": (
-            "Visually compare every eligible candidate using the permanent direct/no-autostretch preview. "
-            "The primary deep-sky target signal must be clearly visible without display autostretch; a candidate "
-            "that remains barely visible, dim or hidden in a raised pedestal must not be selected even if "
-            "numerically eligible. Prefer useful signal separation that survives the diagnostic black-point "
-            "mapping while preserving target-specific faint structure and morphology, processed colour "
-            "relationships, controlled noise and smooth highlights. Judge the actual target shown; do not assume "
-            "any particular object class, named target or morphology."
+            "Visually compare every eligible candidate. Prefer genuine pass-1 signal separation and useful "
+            "nebular contrast, not merely a median near a target. Preserve faint Eagle Nebula structure, "
+            "Pillars/dark lanes and SHO colour while avoiding noisy backgrounds or harsh/clipped highlights."
         ),
         "dynamic_range_policy": {
-            "calibration_basis": "M16-v1.4.1-12-point-stride4",
-            "runtime_target_scope": "generic-deep-sky",
-            "calibration_reference_is_not_runtime_requirement": True,
-            "direct_no_autostretch_visibility_required": True,
             "median_is_advisory_not_primary": True,
             "source_relative_percentile_shape_preservation": False,
-            "minimum_p99_to_p10_ratio": 1.30,
-            "preferred_p99_to_p10_ratio": 1.45,
-            "minimum_p99_minus_p10": 0.080,
-            "preferred_p99_minus_p10": 0.120,
-            "minimum_post_bp_0_008_median": 0.030,
-            "minimum_post_bp_0_008_p99": 0.150,
-            "post_black_point_simulation_is_diagnostic_only": True,
+            "minimum_p99_to_median_ratio": 1.20,
+            "preferred_p99_to_median_ratio": 1.25,
+            "minimum_p99_minus_median": 0.025,
         },
         "candidate_note_format": (
-            "candidate-NN=visibility:<specific direct/no-autostretch observation>; stretch:<specific observation>; structure:<specific observation>; "
+            "candidate-NN=stretch:<specific observation>; structure:<specific observation>; "
             "color:<specific observation>; noise:<specific observation>; highlights:<specific observation>"
         ),
         "required_candidate_note_fields": list(REVIEW_FIELDS),
@@ -572,13 +544,13 @@ def parse_candidate_notes(values: list[str], eligible: list[str]) -> dict[str, d
     expected = set(eligible)
     result: dict[str, dict[str, str]] = {}
     boundary = re.compile(
-        r";\s*(?=(?:visibility|stretch|structure|color|noise|highlights)\s*:)",
+        r";\s*(?=(?:stretch|structure|color|noise|highlights)\s*:)",
         flags=re.IGNORECASE,
     )
     for raw in values:
         if "=" not in raw:
             raise OrchestrationError(
-                "Each --note must use candidate-NN=visibility:<...>; stretch:<...>; structure:<...>; "
+                "Each --note must use candidate-NN=stretch:<...>; structure:<...>; "
                 "color:<...>; noise:<...>; highlights:<...>. Candidate notes belong "
                 "in repeated --note arguments, not inside --visual-notes."
             )
@@ -611,21 +583,10 @@ def parse_candidate_notes(values: list[str], eligible: list[str]) -> dict[str, d
                 raise OrchestrationError(
                     f"{candidate} {key}: observation is too vague; provide a specific visual observation."
                 )
-        if not any(w in fields["visibility"].lower() for w in ("visible", "direct", "autostretch", "dim", "dark", "bright", "readable", "barely", "midtone", "midtones")):
-            raise OrchestrationError(f"{candidate} visibility: must explicitly assess the direct/no-autostretch image visibility.")
-        if not any(
-            w in fields["structure"].lower()
-            for w in (
-                "faint", "structure", "detail", "morphology", "filament", "dust", "lane",
-                "shell", "arm", "halo", "knot", "core", "nebula", "galaxy", "cluster",
-                "target", "wispy", "cloud", "ridge", "arc"
-            )
-        ):
-            raise OrchestrationError(
-                f"{candidate} structure: must specifically address target morphology, faint structure or fine detail."
-            )
+        if not any(w in fields["structure"].lower() for w in ("faint", "pillar", "dark", "lane", "structure", "nebula")):
+            raise OrchestrationError(f"{candidate} structure: must address faint nebula/Pillars/dark lanes.")
         if not any(w in fields["color"].lower() for w in ("color", "colour", "cyan", "blue", "gold", "orange", "green", "sho", "red")):
-            raise OrchestrationError(f"{candidate} color: must address processed colour/palette relationships.")
+            raise OrchestrationError(f"{candidate} color: must address preserved SHO colour.")
         if not any(w in fields["noise"].lower() for w in ("noise", "grain")):
             raise OrchestrationError(f"{candidate} noise: must explicitly address noise/grain.")
         if not any(w in fields["highlights"].lower() for w in ("highlight", "clip", "bright", "core", "harsh")):
@@ -646,7 +607,6 @@ def derive_visual_notes(candidate: str, notes: dict[str, dict[str, str]], eligib
     selected = notes[candidate]
     pieces = [
         f"Selected {candidate} after visually comparing every publication-eligible GHS pass-1 candidate.",
-        f"Its direct-display visibility assessment was: {selected['visibility']}",
         f"Its stretch assessment was: {selected['stretch']}",
         f"Its structure assessment was: {selected['structure']}",
         f"Its SHO colour assessment was: {selected['color']}",
@@ -654,7 +614,7 @@ def derive_visual_notes(candidate: str, notes: dict[str, dict[str, str]], eligib
     others = [name for name in eligible if name != candidate]
     if others:
         pieces.append(
-            "Other reviewed candidates were not selected after comparing their direct visibility, stretch, "
+            "Other reviewed candidates were not selected after comparing their stretch, "
             "structure, colour, noise and highlight behavior: " + ", ".join(others) + "."
         )
     return " ".join(pieces)
@@ -745,7 +705,7 @@ def select_publish(project_name: str, candidate: str, visual_notes: str | None, 
         "schema_version": 1,
         "orchestration_version": "1.3.2",
         "publication_orchestration_version": VERSION,
-        "review_contract_revision": "ghs-pass1-publication-v1.4.1-direct-visibility",
+        "review_contract_revision": "ghs-pass1-publication-v1.4.0-dynamic-range",
         "processing_engine_version": PROCESSING_ENGINE_VERSION,
         "recorded_at": utc_now(),
         "project_name": project_name,
@@ -784,7 +744,7 @@ def select_publish(project_name: str, candidate: str, visual_notes: str | None, 
 
     verification = canonical_snapshot(project_name)
     if verification.get("status") != "ready":
-        raise OrchestrationError(f"Post-publication v1.4.1 verification failed: {verification}")
+        raise OrchestrationError(f"Post-publication v1.4.0 verification failed: {verification}")
 
     return {
         "status": "ready",
@@ -851,15 +811,15 @@ def stage_status(project_name: str) -> dict[str, Any]:
 def self_test() -> dict[str, Any]:
     eligible = ["candidate-01", "candidate-02"]
     good = [
-        "candidate-01=visibility:the primary deep-sky target is clearly visible in the direct no-autostretch preview with useful midtones; stretch:target contrast is materially expanded while the background remains controlled; structure:faint filaments, dust lanes and low-surface-brightness detail remain clearly distinguishable; color:processed gold and cyan colour relationships remain natural and intact; noise:visible noise and grain remain controlled in the faint background; highlights:bright target highlights remain smooth with no clipped or harsh cores",
-        "candidate-02=visibility:the direct preview is bright enough to read the primary target without autostretch and does not remain dim; stretch:signal separation is stronger while the target remains natural rather than overprocessed; structure:spiral-arm or shell-like morphology and faint outer detail remain preserved where present; color:processed blue and warm colour separation remains intact; noise:background noise remains fine and does not become visibly coarse or grainy; highlights:bright structural highlights remain smooth without clipping or harsh transitions",
+        "candidate-01=stretch:nebular contrast is materially expanded while the background remains controlled; structure:faint outer nebula, Pillars and dark lanes remain clearly distinguishable; color:SHO gold and cyan colour separation remains natural and intact; noise:visible noise and grain remain controlled in the faint background; highlights:bright nebular highlights remain smooth with no clipped or harsh cores",
+        "candidate-02=stretch:signal separation is stronger while the primary nebula remains natural rather than overprocessed; structure:faint Eagle Nebula structure, Pillars and dark lanes remain preserved; color:gold orange and cyan blue SHO colour separation remains intact; noise:background noise remains fine and does not become visibly coarse or grainy; highlights:bright central highlights remain smooth without clipping or harsh transitions",
     ]
     parsed = parse_candidate_notes(good, eligible)
     derived = derive_visual_notes("candidate-01", parsed, eligible)
     if len(derived) < 80 or "candidate-02" not in derived:
         raise OrchestrationError("Derived overall visual-notes self-test failed.")
     bad = [
-        "candidate-01=visibility:looks fine; stretch:looks good; structure:preserved; color:good; noise:low; highlights:fine",
+        "candidate-01=stretch:looks good; structure:preserved; color:good; noise:low; highlights:fine",
         good[1],
     ]
     try:
@@ -874,7 +834,7 @@ def self_test() -> dict[str, Any]:
         "status": "success",
         "orchestration_version": VERSION,
         "processing_engine_version": PROCESSING_ENGINE_VERSION,
-        "processing_policy_revision": "dynamic-range-expansion-v2",
+        "processing_policy_revision": "dynamic-range-expansion-v1",
         "structured_notes_accepted": True,
         "vague_notes_rejected": True,
         "required_fields": list(REVIEW_FIELDS),
@@ -889,17 +849,12 @@ def self_test() -> dict[str, Any]:
         "candidate_notes_use_repeated_note_arguments": True,
         "publication_format_retry_budget": 3,
         "pass2_v1_3_2_record_filename_preserved": True,
-        "direct_no_autostretch_visibility_required": True,
-        "generic_deep_sky_target_review_contract": True,
-        "named_target_or_morphology_required": False,
-        "calibration_reference_is_not_runtime_requirement": True,
-        "calibration_basis": "M16-v1.4.1-12-point-stride4",
     }
 
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="GHS pass-1 v1.4.1 dynamic-range autonomous publication wrapper.")
+    p = argparse.ArgumentParser(description="GHS pass-1 v1.3.3 resumable autonomous publication wrapper.")
     p.add_argument("--version", action="version", version=VERSION)
     sub = p.add_subparsers(dest="command", required=True)
     a = sub.add_parser("advance"); a.add_argument("--project", required=True)

@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-VERSION = "1.4.1"
-PROCESSING_ENGINE_VERSION = "1.4.1"
+VERSION = "1.3.3"
+PROCESSING_ENGINE_VERSION = "1.3.1"
 
 WORKSPACE = Path("/home/peter/.openclaw/workspace/agents/codewarrior")
 PROJECTS_ROOT = WORKSPACE / "Projects"
@@ -25,9 +25,9 @@ CANONICAL_DIR_REL = Path("processing/ghs-pass1")
 CANONICAL_MANIFEST_REL = CANONICAL_DIR_REL / "ghs-pass1-manifest.json"
 CANONICAL_OUTPUT_REL = CANONICAL_DIR_REL / "SHO-starless-ghs-pass1.fit"
 REVIEW_RECORD_REL = CANONICAL_DIR_REL / "visual-selection-record-v1.3.2.json"
-STATE_DIR_NAME = ".siril-ghs-stretch-v1.4.1"
+STATE_DIR_NAME = ".siril-ghs-stretch-v1.3.2"
 
-REVIEW_FIELDS = ("visibility", "stretch", "structure", "color", "noise", "highlights")
+REVIEW_FIELDS = ("stretch", "structure", "color", "noise", "highlights")
 
 
 class OrchestrationError(RuntimeError):
@@ -43,14 +43,11 @@ def stamp() -> str:
 
 
 def sha256_file(path: Path) -> str:
-    if os.environ.get("GHS141_FORBID_FITS_HASH") == "1" and path.suffix.lower() in {".fit", ".fits", ".fts"}:
-        raise OrchestrationError(f"Large FITS hashing forbidden in manifest-first mode: {path}")
     h = hashlib.sha256()
     with path.open("rb") as fh:
         for block in iter(lambda: fh.read(1024 * 1024), b""):
             h.update(block)
     return h.hexdigest()
-
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -108,55 +105,38 @@ def validate_project(project_name: str) -> dict[str, Path]:
     return p
 
 
-def canonical_snapshot(project_name: str, *, strong: bool = False) -> dict[str, Any]:
+def canonical_snapshot(project_name: str) -> dict[str, Any]:
     p = validate_project(project_name)
-    sm = load_json(p["source_manifest"])
-    source_recorded_sha = sm.get("output", {}).get("sha256")
-    if not isinstance(source_recorded_sha, str) or len(source_recorded_sha) != 64:
-        raise OrchestrationError("Channel-balance manifest lacks a recorded output SHA-256.")
-    source_manifest_sha = sha256_file(p["source_manifest"])
-
+    source_sha = sha256_file(p["source"])
     if not p["canonical_manifest"].is_file() or not p["canonical_output"].is_file():
-        return {
-            "exists": False,
-            "status": "missing",
-            "source_sha256": source_recorded_sha,
-            "source_manifest_sha256": source_manifest_sha,
-            "strong_hashes_verified": False,
-            "large_fits_hashed": False,
-        }
+        return {"exists": False, "status": "missing", "source_sha256": source_sha}
 
     m = load_json(p["canonical_manifest"])
-    canonical_manifest_sha = sha256_file(p["canonical_manifest"])
-    output_recorded_sha = m.get("output", {}).get("sha256")
-    if not isinstance(output_recorded_sha, str) or len(output_recorded_sha) != 64:
-        output_recorded_sha = None
-
+    output_sha = sha256_file(p["canonical_output"])
     errors: list[str] = []
-    policy_obsolete = m.get("helper_version") != PROCESSING_ENGINE_VERSION
     if m.get("status") != "ready":
         errors.append("canonical GHS manifest is not ready")
+    if m.get("helper_version") != PROCESSING_ENGINE_VERSION:
+        errors.append("canonical GHS processing helper version is unexpected")
     if m.get("source_contract_revision") != "post-starnet-channel-balance-v1":
         errors.append("canonical source contract is not post-starnet-channel-balance-v1")
-    if m.get("source", {}).get("sha256") != source_recorded_sha:
-        errors.append("canonical source SHA does not match the current channel-balance manifest")
-    if output_recorded_sha is None:
-        errors.append("canonical manifest lacks an output SHA-256")
+    if m.get("source", {}).get("sha256") != source_sha:
+        errors.append("canonical source SHA does not match current channel-balanced source")
+    if m.get("output", {}).get("sha256") != output_sha:
+        errors.append("canonical output SHA does not match manifest")
     if m.get("next_stage") != "siril-ghs-stretch-pass2":
         errors.append("canonical next stage is not siril-ghs-stretch-pass2")
-    if p["canonical_output"].stat().st_size <= 0:
-        errors.append("canonical output is empty")
 
     review_ok = False
     review = None
-    if p["review_record"].is_file() and not policy_obsolete:
+    if p["review_record"].is_file():
         try:
             review = load_json(p["review_record"])
             review_ok = (
                 review.get("orchestration_version") == "1.3.2"
-                and review.get("publication_orchestration_version") == VERSION
+                and review.get("publication_orchestration_version") in (None, VERSION)
                 and review.get("processing_engine_version") == PROCESSING_ENGINE_VERSION
-                and review.get("canonical_output_sha256") == output_recorded_sha
+                and review.get("canonical_output_sha256") == output_sha
                 and review.get("visual_review_completed") is True
                 and review.get("review_method") == "openclaw-read"
                 and review.get("ghs_pass2_processing_permitted") is True
@@ -164,43 +144,19 @@ def canonical_snapshot(project_name: str, *, strong: bool = False) -> dict[str, 
         except Exception:
             review_ok = False
 
-    strong_source_sha = None
-    strong_output_sha = None
-    if strong:
-        strong_source_sha = sha256_file(p["source"])
-        strong_output_sha = sha256_file(p["canonical_output"])
-        if strong_source_sha != source_recorded_sha:
-            errors.append("current channel-balanced FITS SHA does not match its manifest")
-        if output_recorded_sha is not None and strong_output_sha != output_recorded_sha:
-            errors.append("canonical GHS FITS SHA does not match its manifest")
-
-    if policy_obsolete:
-        status = "obsolete"
-    elif not errors and review_ok:
-        status = "ready"
-    else:
-        status = "provisional"
-
     return {
         "exists": True,
-        "status": status,
-        "policy_obsolete": policy_obsolete,
-        "canonical_helper_version": m.get("helper_version"),
-        "required_helper_version": PROCESSING_ENGINE_VERSION,
+        "status": "ready" if not errors and review_ok else "provisional",
         "errors": errors,
-        "output_sha256": strong_output_sha or output_recorded_sha,
-        "manifest_sha256": canonical_manifest_sha,
-        "source_sha256": strong_source_sha or source_recorded_sha,
-        "source_manifest_sha256": source_manifest_sha,
+        "output_sha256": output_sha,
+        "manifest_sha256": sha256_file(p["canonical_manifest"]),
+        "source_sha256": source_sha,
         "selected_candidate": m.get("selected_candidate"),
         "recommended_candidate": m.get("recommended_candidate"),
         "review_record": str(p["review_record"]) if p["review_record"].is_file() else None,
         "review_record_v1_3_2_valid": review_ok,
-        "ghs_pass2_processing_permitted": bool(status == "ready" and review_ok),
-        "strong_hashes_verified": bool(strong and not errors),
-        "large_fits_hashed": bool(strong),
+        "ghs_pass2_processing_permitted": bool(not errors and review_ok),
     }
-
 
 
 def run_engine(args: list[str], timeout: int = 7200) -> dict[str, Any]:
@@ -234,7 +190,7 @@ def run_engine(args: list[str], timeout: int = 7200) -> dict[str, Any]:
 def locate_fresh_intent(p: dict[str, Path], canonical: dict[str, Any]) -> Path | None:
     if not p["intents"].is_dir():
         return None
-    rows: list[tuple[float, Path, dict[str, Any]]] = []
+    rows: list[tuple[float, Path]] = []
     for f in p["intents"].glob("fresh-run-*.json"):
         try:
             x = load_json(f)
@@ -242,58 +198,28 @@ def locate_fresh_intent(p: dict[str, Path], canonical: dict[str, Any]) -> Path |
             continue
         if (
             x.get("status") == "authorized"
-            and x.get("orchestration_version") == VERSION
-            and x.get("canonical_manifest_sha256") == canonical.get("manifest_sha256")
-            and x.get("source_manifest_sha256") == canonical.get("source_manifest_sha256")
             and x.get("canonical_output_sha256") == canonical.get("output_sha256")
             and x.get("source_sha256") == canonical.get("source_sha256")
         ):
-            rows.append((f.stat().st_mtime, f, x))
-    if not rows:
-        return None
-    _, f, x = sorted(rows, key=lambda item: item[0], reverse=True)[0]
-    strong = canonical_snapshot(p["project"].name, strong=True)
-    if (
-        strong.get("canonical_manifest_sha256") not in (None, x.get("canonical_manifest_sha256"))
-        and strong.get("manifest_sha256") != x.get("canonical_manifest_sha256")
-    ):
-        return None
-    if strong.get("manifest_sha256") != x.get("canonical_manifest_sha256"):
-        return None
-    if strong.get("source_manifest_sha256") != x.get("source_manifest_sha256"):
-        return None
-    if strong.get("output_sha256") != x.get("canonical_output_sha256"):
-        return None
-    if strong.get("source_sha256") != x.get("source_sha256"):
-        return None
-    if not strong.get("strong_hashes_verified"):
-        return None
-    return f
-
+            rows.append((f.stat().st_mtime, f))
+    return sorted(rows, key=lambda x: x[0], reverse=True)[0][1] if rows else None
 
 
 def confirm_fresh(project_name: str) -> dict[str, Any]:
     p = validate_project(project_name)
-    c = canonical_snapshot(project_name, strong=True)
+    c = canonical_snapshot(project_name)
     if not c.get("exists"):
         raise OrchestrationError("No completed canonical GHS pass-1 result exists to rerun.")
-    if not c.get("strong_hashes_verified"):
-        raise OrchestrationError(f"Cannot authorize fresh rerun because strong provenance verification failed: {c.get('errors')}")
     p["intents"].mkdir(parents=True, exist_ok=True)
     f = p["intents"] / f"fresh-run-{stamp()}.json"
     obj = {
-        "schema_version": 2,
+        "schema_version": 1,
         "orchestration_version": VERSION,
-        "processing_engine_version": PROCESSING_ENGINE_VERSION,
         "status": "authorized",
         "authorized_at": utc_now(),
         "project_name": project_name,
-        "canonical_status_at_authorization": c.get("status"),
-        "canonical_manifest_sha256": c["manifest_sha256"],
-        "source_manifest_sha256": c["source_manifest_sha256"],
         "canonical_output_sha256": c["output_sha256"],
         "source_sha256": c["source_sha256"],
-        "strong_hashes_verified": True,
     }
     write_json_atomic(f, obj)
     return {
@@ -302,11 +228,8 @@ def confirm_fresh(project_name: str) -> dict[str, Any]:
         "processing_engine_version": PROCESSING_ENGINE_VERSION,
         "project": str(p["project"]),
         "fresh_intent": str(f),
-        "current_canonical_status": c.get("status"),
-        "strong_hashes_verified": True,
         "ghs_pass2_processing_permitted": False,
     }
-
 
 
 def build_state(project_name: str, engine: dict[str, Any], fresh: bool, intent: Path | None) -> dict[str, Any]:
@@ -318,7 +241,7 @@ def build_state(project_name: str, engine: dict[str, Any], fresh: bool, intent: 
     if engine.get("helper_version") != PROCESSING_ENGINE_VERSION:
         raise OrchestrationError("Unexpected GHS engine version in run result.")
     if engine.get("publication_permitted") is not True:
-        raise OrchestrationError(f"GHS engine did not permit publication: {engine.get('publication_gate')}")
+        raise OrchestrationError("GHS engine did not permit publication.")
     eligible = [str(x) for x in engine.get("publication_eligible_candidates", [])]
     if not eligible:
         raise OrchestrationError("No publication-eligible GHS candidates were returned.")
@@ -328,7 +251,7 @@ def build_state(project_name: str, engine: dict[str, Any], fresh: bool, intent: 
         for c in engine.get("candidates", [])
         if isinstance(c, dict) and c.get("candidate")
     }
-    candidates: dict[str, Any] = {}
+    candidates = {}
     for name in eligible:
         c = by_name.get(name)
         if c is None:
@@ -339,15 +262,6 @@ def build_state(project_name: str, engine: dict[str, Any], fresh: bool, intent: 
             raise OrchestrationError(f"Candidate preview is missing: {after}")
         if not before.is_file():
             raise OrchestrationError(f"Before-linked preview is missing: {before}")
-        metrics = c.get("quality_assessment", {}).get("metrics", {})
-        p10 = metrics.get("output_luma_p10")
-        median = metrics.get("output_luma_median")
-        p90 = metrics.get("output_luma_p90")
-        p99 = metrics.get("output_luma_p99")
-        ratio = (float(p99) / max(float(median), 1.0e-12)) if median is not None and p99 is not None else None
-        spread = (float(p99) - float(median)) if median is not None and p99 is not None else None
-        p99_to_p10 = (float(p99) / max(float(p10), 1.0e-12)) if p10 is not None and p99 is not None else None
-        p99_minus_p10 = (float(p99) - float(p10)) if p10 is not None and p99 is not None else None
         candidates[name] = {
             "candidate": name,
             "parameters": c.get("parameters"),
@@ -358,26 +272,14 @@ def build_state(project_name: str, engine: dict[str, Any], fresh: bool, intent: 
             "before_preview": str(before),
             "before_preview_sha256": sha256_file(before),
             "output_sha256": c.get("output", {}).get("sha256"),
-            "output_luma_p10": p10,
-            "output_luma_median": median,
-            "output_luma_p90": p90,
-            "output_luma_p99": p99,
-            "output_p99_to_median_ratio": ratio,
-            "output_p99_minus_median": spread,
-            "output_p99_to_p10_ratio": p99_to_p10,
-            "output_p99_minus_p10": p99_minus_p10,
-            "post_bp_0_008_median": metrics.get("post_bp_0_008_median"),
-            "post_bp_0_008_p99": metrics.get("post_bp_0_008_p99"),
-            "post_bp_0_008_p99_minus_p10": metrics.get("post_bp_0_008_p99_minus_p10"),
-            "output_maximum": metrics.get("output_maximum"),
-            "luma_correlation": metrics.get("luma_correlation"),
+            "output_luma_median": c.get("quality_assessment", {}).get("metrics", {}).get("output_luma_median"),
+            "output_luma_p99": c.get("quality_assessment", {}).get("metrics", {}).get("output_luma_p99"),
         }
 
     state = {
-        "schema_version": 2,
+        "schema_version": 1,
         "orchestration_version": VERSION,
         "processing_engine_version": PROCESSING_ENGINE_VERSION,
-        "processing_policy_revision": "dynamic-range-expansion-v2",
         "status": "awaiting_visual_selection",
         "created_at": utc_now(),
         "project_name": project_name,
@@ -404,21 +306,31 @@ def build_state(project_name: str, engine: dict[str, Any], fresh: bool, intent: 
     return state
 
 
-
 def load_active(project_name: str) -> tuple[dict[str, Path], dict[str, Any]] | None:
     p = validate_project(project_name)
     if not p["active"].is_file():
         return None
     s = load_json(p["active"])
-    if s.get("orchestration_version") != VERSION or s.get("processing_engine_version") != PROCESSING_ENGINE_VERSION:
-        raise OrchestrationError("Active GHS run belongs to an older processing policy and cannot be resumed under v1.4.1.")
+    state_version = s.get("orchestration_version")
+    if state_version not in {"1.3.2", VERSION}:
+        raise OrchestrationError(
+            f"Active GHS orchestration state uses unsupported version {state_version!r}."
+        )
     if s.get("status") != "awaiting_visual_selection":
         raise OrchestrationError(f"Unexpected active GHS state: {s.get('status')!r}")
     if s.get("source_sha256") != sha256_file(p["source"]):
         raise OrchestrationError("Balanced starless source changed during active GHS run.")
-    s.setdefault("publication_format_failures", 0)
+    if state_version == "1.3.2":
+        # Preserve and resume the already-generated v1.3.2 candidate run instead of
+        # rerunning Siril/GHS. This migration changes only orchestration state.
+        s["migrated_from_orchestration_version"] = "1.3.2"
+        s["orchestration_version"] = VERSION
+        s["migrated_at"] = utc_now()
+        s.setdefault("publication_format_failures", 0)
+        write_json_atomic(p["active"], s)
+    else:
+        s.setdefault("publication_format_failures", 0)
     return p, s
-
 
 
 def review_plan(state: dict[str, Any]) -> dict[str, Any]:
@@ -442,26 +354,13 @@ def review_plan(state: dict[str, Any]) -> dict[str, Any]:
         summaries.append({
             "candidate": name,
             "parameters": c.get("parameters"),
-            "histogram_classification": c.get("histogram_classification"),
-            "output_luma_p10": c.get("output_luma_p10"),
             "output_luma_median": c.get("output_luma_median"),
-            "output_luma_p90": c.get("output_luma_p90"),
             "output_luma_p99": c.get("output_luma_p99"),
-            "output_p99_to_median_ratio": c.get("output_p99_to_median_ratio"),
-            "output_p99_minus_median": c.get("output_p99_minus_median"),
-            "output_p99_to_p10_ratio": c.get("output_p99_to_p10_ratio"),
-            "output_p99_minus_p10": c.get("output_p99_minus_p10"),
-            "post_bp_0_008_median": c.get("post_bp_0_008_median"),
-            "post_bp_0_008_p99": c.get("post_bp_0_008_p99"),
-            "post_bp_0_008_p99_minus_p10": c.get("post_bp_0_008_p99_minus_p10"),
-            "output_maximum": c.get("output_maximum"),
-            "luma_correlation": c.get("luma_correlation"),
             "recommended": name == state.get("recommended_candidate"),
         })
         note_templates.append(
-            f'--note "{name}=visibility:<specific direct/no-autostretch visibility observation>; '
-            'stretch:<specific contrast/histogram-spread observation>; '
-            'structure:<specific target morphology/faint-detail observation>; '
+            f'--note "{name}=stretch:<specific visual observation>; '
+            'structure:<specific faint nebula/Pillars/dark-lanes observation>; '
             'color:<specific SHO colour observation>; '
             'noise:<specific noise/grain observation>; '
             'highlights:<specific highlight/clipping observation>"'
@@ -471,7 +370,6 @@ def review_plan(state: dict[str, Any]) -> dict[str, Any]:
         "action": "continue_autonomously_to_publication",
         "orchestration_version": VERSION,
         "processing_engine_version": PROCESSING_ENGINE_VERSION,
-        "processing_policy_revision": "dynamic-range-expansion-v2",
         "project_name": state["project_name"],
         "run_root": state["run_root"],
         "publication_eligible_candidates": eligible,
@@ -486,49 +384,43 @@ def review_plan(state: dict[str, Any]) -> dict[str, Any]:
             "on_read_failure": "stop_and_report_exact_failed_path",
         },
         "selection_rule": (
-            "Visually compare every eligible candidate using the permanent direct/no-autostretch preview. "
-            "The primary deep-sky target signal must be clearly visible without display autostretch; a candidate "
-            "that remains barely visible, dim or hidden in a raised pedestal must not be selected even if "
-            "numerically eligible. Prefer useful signal separation that survives the diagnostic black-point "
-            "mapping while preserving target-specific faint structure and morphology, processed colour "
-            "relationships, controlled noise and smooth highlights. Judge the actual target shown; do not assume "
-            "any particular object class, named target or morphology."
+            "Visually compare every eligible candidate. Choose the best actual pass-1 stretch, "
+            "not automatically the numerical recommendation. Preserve faint Eagle Nebula "
+            "structure, Pillars/dark lanes and SHO colour while avoiding visible noise, "
+            "crushed shadows or harsh/clipped highlights."
         ),
-        "dynamic_range_policy": {
-            "calibration_basis": "M16-v1.4.1-12-point-stride4",
-            "runtime_target_scope": "generic-deep-sky",
-            "calibration_reference_is_not_runtime_requirement": True,
-            "direct_no_autostretch_visibility_required": True,
-            "median_is_advisory_not_primary": True,
-            "source_relative_percentile_shape_preservation": False,
-            "minimum_p99_to_p10_ratio": 1.30,
-            "preferred_p99_to_p10_ratio": 1.45,
-            "minimum_p99_minus_p10": 0.080,
-            "preferred_p99_minus_p10": 0.120,
-            "minimum_post_bp_0_008_median": 0.030,
-            "minimum_post_bp_0_008_p99": 0.150,
-            "post_black_point_simulation_is_diagnostic_only": True,
-        },
         "candidate_note_format": (
-            "candidate-NN=visibility:<specific direct/no-autostretch observation>; stretch:<specific observation>; structure:<specific observation>; "
-            "color:<specific observation>; noise:<specific observation>; highlights:<specific observation>"
+            "candidate-NN=stretch:<specific observation>; structure:<specific observation>; "
+            "color:<specific observation>; noise:<specific observation>; "
+            "highlights:<specific observation>"
         ),
         "required_candidate_note_fields": list(REVIEW_FIELDS),
+        "publication_contract": {
+            "candidate_notes_belong_in": "repeated --note arguments",
+            "candidate_notes_do_not_belong_in": "--visual-notes",
+            "visual_notes": "optional; when omitted the orchestrator derives the overall comparison from the candidate notes",
+            "publication_format_retry_budget": 3,
+            "on_format_error": "repair only the publication payload; do not rerun GHS and do not reread images",
+            "on_retry_budget_exhausted": "stop and report the exact contract error",
+        },
         "select_publish_command_template": {
-            "command": str(WORKSPACE / "skills/siril-ghs-stretch/bin/ghs-stretch") + " select-publish",
+            "command": (
+                "/home/peter/.openclaw/workspace/agents/codewarrior/skills/"
+                "siril-ghs-stretch/bin/ghs-stretch select-publish"
+            ),
             "required": [
                 '--project "<project>"',
                 '--candidate "<selected candidate>"',
                 *note_templates,
             ],
-            "optional": ['--visual-notes "<overall comparison; candidate notes must NOT be placed here>"'],
+            "optional": [
+                '--visual-notes "<overall comparison; candidate notes must NOT be placed here>"'
+            ],
         },
-        "candidate_notes_belong_in": "repeated --note arguments",
-        "publication_format_retry_budget": 3,
-        "resume_without_reprocessing": False,
+        "resume_without_reprocessing": bool(state.get("migrated_from_orchestration_version")),
+        "publication_format_failures": int(state.get("publication_format_failures", 0)),
         "ghs_pass2_processing_permitted": False,
     }
-
 
 
 def advance(project_name: str) -> dict[str, Any]:
@@ -554,11 +446,6 @@ def advance(project_name: str) -> dict[str, Any]:
                 "confirmation_required": True,
                 "current_canonical_status": c.get("status"),
                 "current_canonical_output_sha256": c.get("output_sha256"),
-                "current_canonical_manifest_sha256": c.get("manifest_sha256"),
-                "current_source_manifest_sha256": c.get("source_manifest_sha256"),
-                "policy_obsolete": c.get("policy_obsolete", False),
-                "manifest_first": True,
-                "large_fits_hashed": False,
                 "ghs_pass2_processing_permitted": False,
             }
         engine = run_engine(["run", "--project", project_name, "--fresh-run"])
@@ -572,13 +459,13 @@ def parse_candidate_notes(values: list[str], eligible: list[str]) -> dict[str, d
     expected = set(eligible)
     result: dict[str, dict[str, str]] = {}
     boundary = re.compile(
-        r";\s*(?=(?:visibility|stretch|structure|color|noise|highlights)\s*:)",
+        r";\s*(?=(?:stretch|structure|color|noise|highlights)\s*:)",
         flags=re.IGNORECASE,
     )
     for raw in values:
         if "=" not in raw:
             raise OrchestrationError(
-                "Each --note must use candidate-NN=visibility:<...>; stretch:<...>; structure:<...>; "
+                "Each --note must use candidate-NN=stretch:<...>; structure:<...>; "
                 "color:<...>; noise:<...>; highlights:<...>. Candidate notes belong "
                 "in repeated --note arguments, not inside --visual-notes."
             )
@@ -611,21 +498,10 @@ def parse_candidate_notes(values: list[str], eligible: list[str]) -> dict[str, d
                 raise OrchestrationError(
                     f"{candidate} {key}: observation is too vague; provide a specific visual observation."
                 )
-        if not any(w in fields["visibility"].lower() for w in ("visible", "direct", "autostretch", "dim", "dark", "bright", "readable", "barely", "midtone", "midtones")):
-            raise OrchestrationError(f"{candidate} visibility: must explicitly assess the direct/no-autostretch image visibility.")
-        if not any(
-            w in fields["structure"].lower()
-            for w in (
-                "faint", "structure", "detail", "morphology", "filament", "dust", "lane",
-                "shell", "arm", "halo", "knot", "core", "nebula", "galaxy", "cluster",
-                "target", "wispy", "cloud", "ridge", "arc"
-            )
-        ):
-            raise OrchestrationError(
-                f"{candidate} structure: must specifically address target morphology, faint structure or fine detail."
-            )
+        if not any(w in fields["structure"].lower() for w in ("faint", "pillar", "dark", "lane", "structure", "nebula")):
+            raise OrchestrationError(f"{candidate} structure: must address faint nebula/Pillars/dark lanes.")
         if not any(w in fields["color"].lower() for w in ("color", "colour", "cyan", "blue", "gold", "orange", "green", "sho", "red")):
-            raise OrchestrationError(f"{candidate} color: must address processed colour/palette relationships.")
+            raise OrchestrationError(f"{candidate} color: must address preserved SHO colour.")
         if not any(w in fields["noise"].lower() for w in ("noise", "grain")):
             raise OrchestrationError(f"{candidate} noise: must explicitly address noise/grain.")
         if not any(w in fields["highlights"].lower() for w in ("highlight", "clip", "bright", "core", "harsh")):
@@ -646,7 +522,6 @@ def derive_visual_notes(candidate: str, notes: dict[str, dict[str, str]], eligib
     selected = notes[candidate]
     pieces = [
         f"Selected {candidate} after visually comparing every publication-eligible GHS pass-1 candidate.",
-        f"Its direct-display visibility assessment was: {selected['visibility']}",
         f"Its stretch assessment was: {selected['stretch']}",
         f"Its structure assessment was: {selected['structure']}",
         f"Its SHO colour assessment was: {selected['color']}",
@@ -654,7 +529,7 @@ def derive_visual_notes(candidate: str, notes: dict[str, dict[str, str]], eligib
     others = [name for name in eligible if name != candidate]
     if others:
         pieces.append(
-            "Other reviewed candidates were not selected after comparing their direct visibility, stretch, "
+            "Other reviewed candidates were not selected after comparing their stretch, "
             "structure, colour, noise and highlight behavior: " + ", ".join(others) + "."
         )
     return " ".join(pieces)
@@ -745,7 +620,7 @@ def select_publish(project_name: str, candidate: str, visual_notes: str | None, 
         "schema_version": 1,
         "orchestration_version": "1.3.2",
         "publication_orchestration_version": VERSION,
-        "review_contract_revision": "ghs-pass1-publication-v1.4.1-direct-visibility",
+        "review_contract_revision": "ghs-pass1-publication-v1.3.3",
         "processing_engine_version": PROCESSING_ENGINE_VERSION,
         "recorded_at": utc_now(),
         "project_name": project_name,
@@ -784,7 +659,7 @@ def select_publish(project_name: str, candidate: str, visual_notes: str | None, 
 
     verification = canonical_snapshot(project_name)
     if verification.get("status") != "ready":
-        raise OrchestrationError(f"Post-publication v1.4.1 verification failed: {verification}")
+        raise OrchestrationError(f"Post-publication v1.3.3 verification failed: {verification}")
 
     return {
         "status": "ready",
@@ -851,15 +726,17 @@ def stage_status(project_name: str) -> dict[str, Any]:
 def self_test() -> dict[str, Any]:
     eligible = ["candidate-01", "candidate-02"]
     good = [
-        "candidate-01=visibility:the primary deep-sky target is clearly visible in the direct no-autostretch preview with useful midtones; stretch:target contrast is materially expanded while the background remains controlled; structure:faint filaments, dust lanes and low-surface-brightness detail remain clearly distinguishable; color:processed gold and cyan colour relationships remain natural and intact; noise:visible noise and grain remain controlled in the faint background; highlights:bright target highlights remain smooth with no clipped or harsh cores",
-        "candidate-02=visibility:the direct preview is bright enough to read the primary target without autostretch and does not remain dim; stretch:signal separation is stronger while the target remains natural rather than overprocessed; structure:spiral-arm or shell-like morphology and faint outer detail remain preserved where present; color:processed blue and warm colour separation remains intact; noise:background noise remains fine and does not become visibly coarse or grainy; highlights:bright structural highlights remain smooth without clipping or harsh transitions",
+        "candidate-01=stretch:background is lifted moderately and the nebula remains comfortably dark; structure:faint outer nebula, Pillars and dark lanes remain clearly distinguishable; color:SHO gold and cyan colour separation remains natural and intact; noise:visible noise and grain remain controlled in the faint background; highlights:bright nebular highlights remain smooth with no clipped or harsh cores",
+        "candidate-02=stretch:background is slightly darker while the primary nebula remains clearly visible; structure:faint Eagle Nebula structure, Pillars and dark lanes remain preserved; color:gold orange and cyan blue SHO colour separation remains intact; noise:background noise remains fine and does not become visibly coarse or grainy; highlights:bright central highlights remain smooth without clipping or harsh transitions",
     ]
     parsed = parse_candidate_notes(good, eligible)
+    if set(parsed) != set(eligible):
+        raise OrchestrationError("Structured note self-test failed.")
     derived = derive_visual_notes("candidate-01", parsed, eligible)
     if len(derived) < 80 or "candidate-02" not in derived:
         raise OrchestrationError("Derived overall visual-notes self-test failed.")
     bad = [
-        "candidate-01=visibility:looks fine; stretch:looks good; structure:preserved; color:good; noise:low; highlights:fine",
+        "candidate-01=stretch:looks good; structure:preserved; color:good; noise:low; highlights:fine",
         good[1],
     ]
     try:
@@ -870,36 +747,32 @@ def self_test() -> dict[str, Any]:
         vague_rejected = False
     if not vague_rejected:
         raise OrchestrationError("Vague notes were incorrectly accepted.")
+    semicolon_good = [
+        "candidate-01=stretch:background is lifted moderately; it remains suitable for a first pass; structure:faint outer nebula, Pillars and dark lanes remain clearly distinguishable; color:SHO gold and cyan colour separation remains natural and intact; noise:visible noise and grain remain controlled in the faint background; highlights:bright nebular highlights remain smooth with no clipped or harsh cores",
+        good[1],
+    ]
+    parse_candidate_notes(semicolon_good, eligible)
     return {
         "status": "success",
         "orchestration_version": VERSION,
         "processing_engine_version": PROCESSING_ENGINE_VERSION,
-        "processing_policy_revision": "dynamic-range-expansion-v2",
         "structured_notes_accepted": True,
         "vague_notes_rejected": True,
-        "required_fields": list(REVIEW_FIELDS),
-        "completed_current_requires_confirmation": True,
-        "completed_obsolete_requires_confirmation": True,
-        "manifest_first_completed_stage_detection": True,
-        "pre_confirmation_large_fits_hashing": False,
-        "confirmation_strong_hash_binding": True,
-        "old_active_candidate_runs_resumable": False,
-        "new_state_directory": STATE_DIR_NAME,
-        "exact_read_targets_required": True,
+        "semicolon_safe_candidate_notes": True,
+        "derived_overall_visual_notes": True,
+        "visual_notes_optional_for_normal_publication": True,
         "candidate_notes_use_repeated_note_arguments": True,
         "publication_format_retry_budget": 3,
-        "pass2_v1_3_2_record_filename_preserved": True,
-        "direct_no_autostretch_visibility_required": True,
-        "generic_deep_sky_target_review_contract": True,
-        "named_target_or_morphology_required": False,
-        "calibration_reference_is_not_runtime_requirement": True,
-        "calibration_basis": "M16-v1.4.1-12-point-stride4",
+        "active_v1_3_2_run_migration_supported": True,
+        "pass2_v1_3_2_record_compatibility_preserved": True,
+        "required_fields": list(REVIEW_FIELDS),
+        "completed_stage_requires_confirmation": True,
+        "exact_read_targets_required": True,
     }
 
 
-
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="GHS pass-1 v1.4.1 dynamic-range autonomous publication wrapper.")
+    p = argparse.ArgumentParser(description="GHS pass-1 v1.3.3 resumable autonomous publication wrapper.")
     p.add_argument("--version", action="version", version=VERSION)
     sub = p.add_subparsers(dest="command", required=True)
     a = sub.add_parser("advance"); a.add_argument("--project", required=True)
