@@ -5,6 +5,77 @@ user-invocable: true
 metadata: {"openclaw":{"os":["linux"]}}
 ---
 
+<!-- OPENCLAW_GREEN_REDUCTION_V104_ORCHESTRATION_BEGIN -->
+## v1.0.4 orchestration contract
+
+Orchestration version: **1.0.4**. The image-processing helper remains **1.0.3**
+byte-for-byte and continues to own Siril processing, candidate quality gates,
+exact Read targets, visual selection, publication, and final verification.
+
+For a named-stage request such as:
+
+```text
+Process M16 July 2026 with green reduction
+```
+
+the first Exec must be exactly:
+
+```text
+/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction advance --project "<project>"
+```
+
+Do not read the broad `astro-processing` skill first and do not inspect helper
+source, manifests, run roots, or directories to decide what to do.
+
+A mature completed canonical is still a completed result when its recorded
+black-point source has changed:
+
+```text
+completed + current  -> confirmation_required
+completed + obsolete -> confirmation_required
+```
+
+Before confirmation this classification is manifest-first; large FITS content
+hashes are deferred.
+
+After the user clearly confirms once, run this as ONE Exec:
+
+```text
+/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction confirm-fresh --project "<project>" && /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction advance --project "<project>"
+```
+
+The durable v1.0.4 authorization is strongly bound to the current black-point
+manifest/FITS and the preserved green-reduction manifest/FITS. Do not ask again
+while that binding remains valid.
+
+When `visual_review_required` is returned, use OpenClaw Read on every
+`read_targets[].path` exactly as returned. Never construct, normalize, repair,
+or rediscover a path. If any required Read fails, STOP and report the exact
+failed path. Do not use `ls`, `find`, `cat`, `grep`, `jq`, globbing, directory
+inspection, or manual run-manifest/source inspection as recovery.
+
+The v1.0.3 note validator remains strict. For every eligible candidate use full
+visual phrases in exactly these fields:
+
+```text
+green:<specifically state whether unwanted/residual green remains or was removed>;
+magenta:<specifically state whether any magenta/purple shift is visible>;
+structure:<specifically state whether faint emission, Pillars, and dark lanes remain preserved>
+```
+
+Do not use vague values such as `magenta:none` or `structure:preserved`.
+
+CodeWarrior autonomously chooses the least aggressive technically eligible
+candidate that removes unwanted green without introducing magenta/purple or
+suppressing faint structure. Candidate-02 remains exceptional and requires the
+existing substantive override rationale if selected.
+
+Publication remains preservation-safe: the existing canonical stays intact
+until successful publication. After final `ready`, stop and hand off to
+`siril-saturation`; do not run saturation as part of this stage.
+<!-- OPENCLAW_GREEN_REDUCTION_V104_ORCHESTRATION_END -->
+
+
 # Siril Green Reduction 1.0.4
 
 Use exactly:
@@ -199,85 +270,3 @@ Routine helper responses are capped at 12 KB.
 Verification is not processing. When a verification prompt says STOP, stop.
 Never continue into candidate generation, image review, publication, saturation,
 or later stages.
-
-<!-- OPENCLAW_GREEN_REDUCTION_V106_ORCHESTRATION_BEGIN -->
-## v1.0.6 optional/no-op green reduction and deterministic review contract
-
-Orchestration version: **1.0.6**. The underlying helper keeps compatibility
-version **1.0.3**, but its candidate policy is revised to the bounded set below:
-
-```text
-candidate-00 = 0.00  NO CORRECTION
-candidate-01 = 0.10  mild correction (preferred starting correction)
-candidate-02 = 0.15  moderate correction; requires a specific visual reason
-```
-
-Any older 0.10/0.15/0.20 candidate descriptions elsewhere in historical
-manifests or archived skill text are superseded by this v1.0.6 policy for new
-runs. Old generated runs from the prior candidate policy are not resumable.
-
-For a named-stage request the first Exec is exactly:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction advance --project "<project>"
-```
-
-Completed/current, upstream-obsolete, and old-policy canonicals require exactly
-one fresh confirmation. A source-current v1.0.5 canonical is therefore reported
-as completed-but-obsolete until it is rerun under this v1.0.6 candidate policy. Pre-confirmation classification remains manifest-first and
-does not hash the large FITS files. Because v1.0.6 changes the processing candidate policy, older v1.0.5/v1.0.4
-fresh-run authorizations are not migrated. The user confirms once for this new
-policy; the new authorization is bound to the processing-policy revision as
-well as the canonical hashes.
-
-After confirmation use one Exec:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction confirm-fresh --project "<project>" && /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction advance --project "<project>"
-```
-
-When `visual_review_required` is returned, Read every exact `read_targets.path`
-verbatim. Never construct or rediscover a path. If a Read fails, stop and
-report the exact failed path; no `ls`, `find`, `cat`, `grep`, `jq`, globbing,
-or manual run-root inspection.
-
-### v1.0.6 review-publish interface
-
-Do not call legacy `select-publish` directly. The returned handoff includes the
-exact command template. `--selected` and `--candidate` are aliases; prefer
-`--selected` to match the handoff language.
-
-```text
-.../bin/green-reduction review-publish \
-  --project "<project>" \
-  --selected candidate-01 \
-  --c0-green "<specific observation>" \
-  --c0-magenta "<specific observation>" \
-  --c0-structure "<specific observation>" \
-  --c1-green "<specific observation>" \
-  --c1-magenta "<specific observation>" \
-  --c1-structure "<specific observation>" \
-  --c2-green "<specific observation>" \
-  --c2-magenta "<specific observation>" \
-  --c2-structure "<specific observation>"
-```
-
-The validator rejects genuinely vague values such as `preserved`, `ok`, or
-`same`, but accepts ordinary specific visual sentences without requiring a
-magic phrase. For structure, observations may refer to Pillars, dark lanes,
-faint emission, nebula filaments, detail, ringing/artifacts, edges, or visible
-changes relative to the source.
-
-Selection rule: **prefer no correction when the SHO colour already looks
-natural; otherwise choose the least amount that visibly improves unwanted
-green without producing magenta/purple or damaging faint structure.**
-Candidate-02 (0.15) requires `--policy-override-reason` explaining why 0.00 and
-0.10 are insufficient and why 0.15 remains visually natural.
-
-The user does not choose the candidate. CodeWarrior reviews and selects
-autonomously. A no-correction publication remains a real completed
-`siril-green-reduction` stage and hands off normally to `siril-saturation`.
-
-Unexpected blockers return `stop_no_discovery`. After `ready`, stop before
-saturation.
-<!-- OPENCLAW_GREEN_REDUCTION_V106_ORCHESTRATION_END -->

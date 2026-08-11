@@ -200,57 +200,52 @@ Verification is not processing. When a verification prompt says STOP, stop.
 Never continue into candidate generation, image review, publication, saturation,
 or later stages.
 
-<!-- OPENCLAW_GREEN_REDUCTION_V106_ORCHESTRATION_BEGIN -->
-## v1.0.6 optional/no-op green reduction and deterministic review contract
+<!-- OPENCLAW_GREEN_REDUCTION_V105_ORCHESTRATION_BEGIN -->
+## v1.0.5 orchestration and review-publication contract
 
-Orchestration version: **1.0.6**. The underlying helper keeps compatibility
-version **1.0.3**, but its candidate policy is revised to the bounded set below:
+Orchestration version: **1.0.5**. The image-processing helper remains **1.0.3**
+byte-for-byte. Siril processing remains Maximum Mask `rmgreen 2` at 0.10,
+0.15, and 0.20 in one Siril process.
 
-```text
-candidate-00 = 0.00  NO CORRECTION
-candidate-01 = 0.10  mild correction (preferred starting correction)
-candidate-02 = 0.15  moderate correction; requires a specific visual reason
-```
-
-Any older 0.10/0.15/0.20 candidate descriptions elsewhere in historical
-manifests or archived skill text are superseded by this v1.0.6 policy for new
-runs. Old generated runs from the prior candidate policy are not resumable.
-
-For a named-stage request the first Exec is exactly:
+For a named-stage request the first Exec remains:
 
 ```text
 /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction advance --project "<project>"
 ```
 
-Completed/current, upstream-obsolete, and old-policy canonicals require exactly
-one fresh confirmation. A source-current v1.0.5 canonical is therefore reported
-as completed-but-obsolete until it is rerun under this v1.0.6 candidate policy. Pre-confirmation classification remains manifest-first and
-does not hash the large FITS files. Because v1.0.6 changes the processing candidate policy, older v1.0.5/v1.0.4
-fresh-run authorizations are not migrated. The user confirms once for this new
-policy; the new authorization is bound to the processing-policy revision as
-well as the canonical hashes.
+Completed/current and completed/obsolete canonicals require exactly one fresh
+confirmation. Pre-confirmation classification is manifest-first and does not
+hash the large FITS files.
 
-After confirmation use one Exec:
+A matching durable v1.0.4 authorization is valid evidence that the user already
+confirmed this exact black-point/green-canonical hash binding. v1.0.5 migrates
+that authorization automatically; do **not** ask again after a patch/retry when
+the binding still matches.
+
+After a new confirmation use one Exec:
 
 ```text
 /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction confirm-fresh --project "<project>" && /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction advance --project "<project>"
 ```
 
-When `visual_review_required` is returned, Read every exact `read_targets.path`
-verbatim. Never construct or rediscover a path. If a Read fails, stop and
-report the exact failed path; no `ls`, `find`, `cat`, `grep`, `jq`, globbing,
-or manual run-root inspection.
+If a compatible generated run already exists, resume it. Never regenerate the
+three candidates merely because visual-review publication previously failed.
 
-### v1.0.6 review-publish interface
+When `visual_review_required` is returned, Read every exact `read_targets[].path`
+verbatim. If any Read fails, stop and report that exact path. Never use `ls`,
+`find`, `cat`, `grep`, `jq`, globbing, directory discovery, or manual run-root
+inspection as recovery.
 
-Do not call legacy `select-publish` directly. The returned handoff includes the
-exact command template. `--selected` and `--candidate` are aliases; prefer
-`--selected` to match the handoff language.
+### v1.0.5 review-publish interface
+
+Do **not** call the legacy `select-publish` command directly. v1.0.5 hides its
+candidate-note mini-language. After reviewing the exact images, call
+`review-publish` once using separate fields:
 
 ```text
 .../bin/green-reduction review-publish \
   --project "<project>" \
-  --selected candidate-01 \
+  --candidate candidate-01 \
   --c0-green "<specific observation>" \
   --c0-magenta "<specific observation>" \
   --c0-structure "<specific observation>" \
@@ -262,22 +257,20 @@ exact command template. `--selected` and `--candidate` are aliases; prefer
   --c2-structure "<specific observation>"
 ```
 
-The validator rejects genuinely vague values such as `preserved`, `ok`, or
-`same`, but accepts ordinary specific visual sentences without requiring a
-magic phrase. For structure, observations may refer to Pillars, dark lanes,
-faint emission, nebula filaments, detail, ringing/artifacts, edges, or visible
-changes relative to the source.
+Supply fields only for candidates listed in `publication_eligible_candidates`;
+all listed candidates require all three fields. Observations must be specific
+visual phrases. The orchestrator validates them, constructs exactly one legacy
+`--note` argument per eligible candidate internally, constructs overall visual
+notes internally, and invokes the proven v1.0.3 publisher once.
 
-Selection rule: **prefer no correction when the SHO colour already looks
-natural; otherwise choose the least amount that visibly improves unwanted
-green without producing magenta/purple or damaging faint structure.**
-Candidate-02 (0.15) requires `--policy-override-reason` explaining why 0.00 and
-0.10 are insufficient and why 0.15 remains visually natural.
+Candidate-02 remains assertive. If it is selected, also provide the existing
+substantive `--policy-override-reason` explaining why lower amounts leave
+unwanted green and why 0.20 does not introduce magenta/purple or damage faint
+structure.
 
-The user does not choose the candidate. CodeWarrior reviews and selects
-autonomously. A no-correction publication remains a real completed
-`siril-green-reduction` stage and hands off normally to `siril-saturation`.
+CodeWarrior autonomously chooses the least aggressive satisfactory candidate.
+The user does not choose a candidate.
 
-Unexpected blockers return `stop_no_discovery`. After `ready`, stop before
-saturation.
-<!-- OPENCLAW_GREEN_REDUCTION_V106_ORCHESTRATION_END -->
+Unexpected blockers must return `stop_no_discovery`; do not improvise recovery.
+After `ready`, stop at the `siril-saturation` handoff.
+<!-- OPENCLAW_GREEN_REDUCTION_V105_ORCHESTRATION_END -->

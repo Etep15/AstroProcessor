@@ -29,18 +29,17 @@ COMPATIBLE_RUN_HELPER_VERSIONS = frozenset({"1.0.1", "1.0.2", "1.0.3"})
 COMPATIBLE_CANONICAL_HELPER_VERSIONS = frozenset({"1.0.1", "1.0.2", "1.0.3"})
 MAX_CONTEXT_SAFE_JSON_BYTES = 12000
 MAX_CANDIDATES = 3
-PROCESSING_POLICY_REVISION = "optional-noop-0.00-0.10-0.15-v1"
 CANDIDATE_AMOUNTS = {
-    "candidate-00": 0.00,
-    "candidate-01": 0.10,
-    "candidate-02": 0.15,
+    "candidate-00": 0.10,
+    "candidate-01": 0.15,
+    "candidate-02": 0.20,
 }
 CANDIDATE_CLASSIFICATION = {
-    "candidate-00": "no-correction",
-    "candidate-01": "mild",
-    "candidate-02": "moderate",
+    "candidate-00": "conservative",
+    "candidate-01": "baseline",
+    "candidate-02": "assertive",
 }
-MANUAL_BASELINE_AMOUNT = 0.10
+MANUAL_BASELINE_AMOUNT = 0.15
 RM_GREEN_TYPE = 2
 PRESERVE_LIGHTNESS = True
 MIN_LUMA_CORRELATION = 0.995
@@ -294,12 +293,8 @@ def green_reduction_script_text() -> str:
         'load "SHO-starless-black-point.fit"',
         'savepng "../common/SHO-starless-black-point-before-green-reduction"',
         "close",
-        'load "SHO-starless-black-point.fit"',
-        'save "../candidate-00/work/SHO-starless-green-reduced.fit"',
-        'savepng "../candidate-00/previews/SHO-starless-green-reduced"',
-        "close",
     ]
-    for name in ("candidate-01", "candidate-02"):
+    for name in ("candidate-00", "candidate-01", "candidate-02"):
         amount = CANDIDATE_AMOUNTS[name]
         lines.extend([
             'load "SHO-starless-black-point.fit"',
@@ -310,6 +305,7 @@ def green_reduction_script_text() -> str:
         ])
     lines.append("")
     return "\n".join(lines)
+
 
 def color_metrics(source_path: Path, output_path: Path, stride: int = 4) -> dict[str, Any]:
     src = load_rgb(source_path, stride=stride)
@@ -412,9 +408,9 @@ def publication_gate(candidates: list[dict[str, Any]]) -> dict[str, Any]:
         "status": "ready_for_visual_review", "publication_permitted": True,
         "publication_eligible_candidates": eligible, "recommended_candidate": recommended,
         "reason": (
-            "After SHO channel balancing, no green correction is a valid outcome. Candidate-01 (0.10) is the "
-            "preferred mild correction when unwanted green is visible. Candidate-02 (0.15) is only for cases where "
-            "0.00 and 0.10 leave clearly unwanted green without magenta/purple or structure damage."
+            "The successful manual M16 baseline is Maximum Mask amount 0.15. Visual review may choose the "
+            "conservative candidate if 0.15 introduces magenta/purple, or the assertive candidate only when "
+            "residual green is clearly visible and faint structure remains natural."
         ),
     }
 
@@ -475,7 +471,6 @@ def run_project(*, workspace: Path, project_name: str, timeout_seconds: int, max
         "source": asdict(source_evidence), "upstream_manifest": str(paths["upstream_manifest"]),
         "upstream_manifest_sha256": sha256_file(paths["upstream_manifest"]), "siril": siril,
         "script": str(script), "script_sha256": sha256_file(script), "siril_run": run,
-        "processing_policy_revision": PROCESSING_POLICY_REVISION,
         "candidate_policy": {
             "candidate_amounts": CANDIDATE_AMOUNTS, "candidate_classification": CANDIDATE_CLASSIFICATION,
             "manual_successful_baseline": {"protection_method": "Maximum Mask", "amount": MANUAL_BASELINE_AMOUNT, "preserve_lightness": True},
@@ -568,7 +563,6 @@ def workflow_state(workspace: Path, project_name: str) -> dict[str, Any]:
             if record.get("helper_version") not in COMPATIBLE_RUN_HELPER_VERSIONS: continue
             if record.get("source", {}).get("sha256") != source["sha256"]: continue
             if record.get("canonical_output_changed") is True: continue
-            if record.get("processing_policy_revision") != PROCESSING_POLICY_REVISION: continue
             mtime = manifest.stat().st_mtime
             if record.get("publication_permitted") is True: compatible.append((mtime, run_root, record))
             elif record.get("completed_candidate_count", 0): blocked.append((mtime, run_root, record))
@@ -661,8 +655,8 @@ def review_plan(*, workspace: Path, project_name: str, run_root: Path) -> dict[s
         "publication_eligible_candidates": eligible, "required_candidate_notes": eligible, "recommended_candidate": record.get("recommended_candidate"),
         "candidates": candidates, "review_method_required": "openclaw-read",
         "selection_policy": {
-            "manual_successful_baseline": "Post-channel-balance mild default: Maximum Mask amount 0.10, preserve lightness on",
-            "candidate_00": "no correction 0.00", "candidate_01": "mild 0.10", "candidate_02": "moderate 0.15; requires override reason if selected",
+            "manual_successful_baseline": "Maximum Mask amount 0.15, preserve lightness on",
+            "candidate_00": "conservative 0.10", "candidate_01": "baseline 0.15", "candidate_02": "assertive 0.20; requires override reason if selected",
             "rules": [
                 "Remove the obvious unwanted green cast without neutralizing all SHO green structure.",
                 "Do not select a stronger amount merely because it removes more green numerically.",
@@ -820,7 +814,7 @@ def publish_project(*, workspace: Path, project_name: str, run_root: Path) -> di
         "status": "ready", "visual_review_completed": True, "selected_candidate": selected_name, "recommended_candidate": record.get("recommended_candidate"),
         "selected_candidate_was_recommended": selection.get("selected_candidate_was_recommended"), "method": selected["method"], "quality_assessment": quality,
         "output": {**selected["output"], "path": str(paths["stable_output"])}, "source": {**asdict(source), "path": str(paths["upstream_output"])},
-        "previews": {"before": str(paths["stable_before_preview"]), "after": str(paths["stable_after_preview"])}, "candidate_policy": record.get("candidate_policy"), "processing_policy_revision": PROCESSING_POLICY_REVISION, "correction_applied": bool(selected["amount"] > 0.0),
+        "previews": {"before": str(paths["stable_before_preview"]), "after": str(paths["stable_after_preview"])}, "candidate_policy": record.get("candidate_policy"),
         "visual_selection": selection,
         "upstream_summary": {"helper_version": upstream_manifest.get("helper_version"), "manifest": str(paths["upstream_manifest"]), "manifest_sha256": sha256_file(paths["upstream_manifest"]), "status": upstream_manifest.get("status"), "visual_review_completed": upstream_manifest.get("visual_review_completed"), "green_reduction_processing_permitted": upstream_manifest.get("green_reduction_processing_permitted"), "selection_policy_version": upstream_manifest.get("selection_policy", {}).get("version")},
         "next_stage": "siril-saturation", "saturation_processing_permitted": True, "run_root": str(run_root), "failed_publish_staging_preserved_at": str(preserved_failed) if preserved_failed else None,
@@ -928,70 +922,38 @@ def self_test(timeout_seconds: int) -> dict[str, Any]:
     root = WORKSPACE / ".skill-self-tests" / "siril-green-reduction" / unique_id()
     workspace = root / "workspace"
     workspace.mkdir(parents=True, exist_ok=False)
-    project_name = "Synthetic Green Reduction v1.0.6"
+    project_name = "Synthetic Green Reduction v1.0.3"
     write_synthetic_upstream(workspace, project_name)
-
-    script = green_reduction_script_text()
-    correction_commands = [
-        line.strip()
-        for line in script.splitlines()
-        if line.strip().startswith("rmgreen ")
-    ]
-    expected_correction_commands = ["rmgreen 2 0.100", "rmgreen 2 0.150"]
-    if correction_commands != expected_correction_commands:
-        raise GreenReductionError(
-            "Self-test generated Siril correction commands do not match the v1.0.6 policy: "
-            f"{correction_commands}"
-        )
-    if "rmgreen 2 0.000" in script or "rmgreen 2 0.200" in script:
-        raise GreenReductionError(
-            "Self-test generated Siril script contains a forbidden old/no-op rmgreen command."
-        )
-
-    record = run_project(
-        workspace=workspace,
-        project_name=project_name,
-        timeout_seconds=timeout_seconds,
-        max_candidates=3,
-    )
-    if record.get("completed_candidate_count") != 3:
-        raise GreenReductionError("Self-test did not produce exactly three candidates.")
-    if record.get("processing_policy_revision") != PROCESSING_POLICY_REVISION:
-        raise GreenReductionError("Self-test run record lost the v1.0.6 processing-policy revision.")
-    if record.get("recommended_candidate") != "candidate-01":
-        raise GreenReductionError("Self-test did not recommend the 0.10 mild candidate.")
-
+    generated_script = green_reduction_script_text()
+    expected_rmgreen = ["rmgreen 2 0.100", "rmgreen 2 0.150", "rmgreen 2 0.200"]
+    missing_rmgreen = [cmd for cmd in expected_rmgreen if cmd not in generated_script]
+    if missing_rmgreen:
+        raise GreenReductionError(f"Self-test generated Siril script is missing required commands: {missing_rmgreen}")
+    if "-nopreserve" in generated_script:
+        raise GreenReductionError("Self-test generated Siril script disabled Preserve Lightness with -nopreserve.")
+    record = run_project(workspace=workspace, project_name=project_name, timeout_seconds=timeout_seconds, max_candidates=3)
+    if record.get("completed_candidate_count") != 3: raise GreenReductionError("Self-test did not produce exactly three candidates.")
     eligible = record.get("publication_eligible_candidates", [])
     expected_eligible = {"candidate-00", "candidate-01", "candidate-02"}
     if set(eligible) != expected_eligible:
+        by_name = {c.get("candidate"): c for c in record.get("candidates", [])}
+        failed = {
+            name: by_name.get(name, {}).get("quality_assessment", {}).get("failed_checks", [])
+            for name in sorted(expected_eligible - set(eligible))
+        }
         raise GreenReductionError(
-            "Self-test expected all three no-op/mild candidates to remain publication-eligible; "
-            f"got {eligible}."
+            f"Self-test candidate eligibility mismatch. Expected all three candidates eligible; "
+            f"eligible={eligible}; failed_checks={failed}"
         )
+    if record.get("recommended_candidate") != "candidate-01":
+        raise GreenReductionError(
+            f"Self-test expected candidate-01 (0.15) recommendation after eligibility validation; "
+            f"got {record.get('recommended_candidate')!r}."
+        )
+    plan = review_plan(workspace=workspace, project_name=project_name, run_root=Path(record["run_root"]))
+    if plan.get("status") != "visual_review_required" or len(plan.get("read_targets", [])) < 2: raise GreenReductionError("Self-test review plan is invalid.")
+    return {"status": "success", "helper_version": VERSION, "siril": siril_version(), "candidate_amounts": CANDIDATE_AMOUNTS, "recommended_candidate": record.get("recommended_candidate"), "publication_eligible_candidates": eligible, "single_siril_process_for_all_candidates": True, "review_method_required": "openclaw-read", "test_root": str(root)}
 
-    plan = review_plan(
-        workspace=workspace,
-        project_name=project_name,
-        run_root=Path(record["run_root"]),
-    )
-    if plan.get("status") != "visual_review_required" or len(plan.get("read_targets", [])) < 4:
-        raise GreenReductionError("Self-test review plan is invalid.")
-
-    return {
-        "status": "success",
-        "helper_version": VERSION,
-        "siril": siril_version(),
-        "processing_policy_revision": PROCESSING_POLICY_REVISION,
-        "candidate_amounts": CANDIDATE_AMOUNTS,
-        "candidate_classification": CANDIDATE_CLASSIFICATION,
-        "recommended_candidate": record.get("recommended_candidate"),
-        "publication_eligible_candidates": eligible,
-        "candidate_00_true_noop": True,
-        "siril_correction_commands": correction_commands,
-        "single_siril_process_for_all_candidates": True,
-        "review_method_required": "openclaw-read",
-        "test_root": str(root),
-    }
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run/resume preservation-safe Siril green reduction after black point.")

@@ -5,12 +5,12 @@ ORCH="$ROOT/scripts/green_reduction_orchestrator.py"
 LEGACY="$ROOT/bin/green-reduction-v1.0.3"
 
 if [ "${1:-}" = "--version" ]; then
-    printf '1.0.6\n'
+    printf '1.0.4\n'
     exit 0
 fi
 
 case "${1:-}" in
-    advance|confirm-fresh|stage-status|review-publish|self-test)
+    advance|confirm-fresh|stage-status|self-test)
         exec "$ASTRO_PY" "$ORCH" "$@"
         ;;
     *)

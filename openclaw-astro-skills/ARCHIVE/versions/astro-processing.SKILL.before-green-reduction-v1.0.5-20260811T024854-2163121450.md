@@ -1,31 +1,36 @@
-<!-- OPENCLAW_GREEN_REDUCTION_FAST_ROUTE_V106_BEGIN -->
-## Green-reduction named-stage fast route v1.0.6
+<!-- OPENCLAW_GREEN_REDUCTION_FAST_ROUTE_V104_BEGIN -->
+## Green-reduction named-stage fast route v1.0.4
 
-For a direct green-reduction request, FIRST Exec exactly:
+For a request to process a named project with `siril-green-reduction` / green
+reduction, the FIRST Exec must be:
 
 ```text
 /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction advance --project "<project>"
 ```
 
-Do not read broad pipeline/source files first and do not use discovery commands.
-If `confirmation_required`, ask the returned question once. After confirmation
-use one `confirm-fresh && advance` Exec. Do not migrate v1.0.5/v1.0.4 authorization across this candidate-policy change;
-obtain one new confirmation and bind it to the v1.0.6 processing-policy revision.
+Do not read `astro-processing`, green-reduction source, manifests, or run roots
+before that first Exec. Do not use `ls`, `find`, `cat`, `grep`, `jq`, globbing,
+or manual directory/manifest discovery for routing or recovery.
 
-For `visual_review_required`, Read every exact returned path verbatim. Then make
-one `review-publish` call using `--selected` and the separate c0/c1/c2 green,
-magenta, and structure fields. Never call legacy `select-publish` directly.
+If the first response is `confirmation_required`, report that completed/current
+or completed/obsolete state and ask the returned question exactly once. Stop
+until the user explicitly confirms.
 
-Candidate policy for new runs:
-- candidate-00 = 0.00, no correction
-- candidate-01 = 0.10, mild correction
-- candidate-02 = 0.15, moderate correction requiring an override reason
+After confirmation, use ONE Exec:
 
-Prefer no correction if SHO green already looks natural; otherwise choose the
-least correction that improves unwanted green without magenta/purple or faint
-structure loss. On blockers stop; no `ls`, `find`, manual manifest inspection,
-or run-root exploration. `ready` hands off to `siril-saturation` and stops.
-<!-- OPENCLAW_GREEN_REDUCTION_FAST_ROUTE_V106_END -->
+```text
+/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction confirm-fresh --project "<project>" && /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction advance --project "<project>"
+```
+
+After that, continue autonomously. Use every exact `read_targets[].path`
+verbatim with OpenClaw Read; if any Read fails, stop and report the exact failed
+path with no discovery fallback. Compare every eligible candidate, record full
+`green:`, `magenta:`, and `structure:` observations, autonomously select the
+least aggressive satisfactory result, then use the public `select-publish`
+interface. Do not ask the user to choose a candidate.
+
+A `ready` result hands off to `siril-saturation`. Stop there.
+<!-- OPENCLAW_GREEN_REDUCTION_FAST_ROUTE_V104_END -->
 
 
 <!-- OPENCLAW_BLACK_POINT_FAST_ROUTE_V106_BEGIN -->

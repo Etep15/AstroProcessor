@@ -1,33 +1,3 @@
-<!-- OPENCLAW_GREEN_REDUCTION_FAST_ROUTE_V106_BEGIN -->
-## Green-reduction named-stage fast route v1.0.6
-
-For a direct green-reduction request, FIRST Exec exactly:
-
-```text
-/home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction advance --project "<project>"
-```
-
-Do not read broad pipeline/source files first and do not use discovery commands.
-If `confirmation_required`, ask the returned question once. After confirmation
-use one `confirm-fresh && advance` Exec. Do not migrate v1.0.5/v1.0.4 authorization across this candidate-policy change;
-obtain one new confirmation and bind it to the v1.0.6 processing-policy revision.
-
-For `visual_review_required`, Read every exact returned path verbatim. Then make
-one `review-publish` call using `--selected` and the separate c0/c1/c2 green,
-magenta, and structure fields. Never call legacy `select-publish` directly.
-
-Candidate policy for new runs:
-- candidate-00 = 0.00, no correction
-- candidate-01 = 0.10, mild correction
-- candidate-02 = 0.15, moderate correction requiring an override reason
-
-Prefer no correction if SHO green already looks natural; otherwise choose the
-least correction that improves unwanted green without magenta/purple or faint
-structure loss. On blockers stop; no `ls`, `find`, manual manifest inspection,
-or run-root exploration. `ready` hands off to `siril-saturation` and stops.
-<!-- OPENCLAW_GREEN_REDUCTION_FAST_ROUTE_V106_END -->
-
-
 <!-- OPENCLAW_BLACK_POINT_FAST_ROUTE_V106_BEGIN -->
 ## Black-point named-stage fast route — highest priority
 

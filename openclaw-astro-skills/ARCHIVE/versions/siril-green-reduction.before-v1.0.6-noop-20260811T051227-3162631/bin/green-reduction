@@ -5,7 +5,7 @@ ORCH="$ROOT/scripts/green_reduction_orchestrator.py"
 LEGACY="$ROOT/bin/green-reduction-v1.0.3"
 
 if [ "${1:-}" = "--version" ]; then
-    printf '1.0.6\n'
+    printf '1.0.5\n'
     exit 0
 fi
 

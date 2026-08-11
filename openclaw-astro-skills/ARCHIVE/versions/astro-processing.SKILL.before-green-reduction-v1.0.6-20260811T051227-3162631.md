@@ -1,31 +1,30 @@
-<!-- OPENCLAW_GREEN_REDUCTION_FAST_ROUTE_V106_BEGIN -->
-## Green-reduction named-stage fast route v1.0.6
+<!-- OPENCLAW_GREEN_REDUCTION_FAST_ROUTE_V105_BEGIN -->
+## Green-reduction named-stage fast route v1.0.5
 
-For a direct green-reduction request, FIRST Exec exactly:
+For a direct green-reduction processing request, FIRST Exec:
 
 ```text
 /home/peter/.openclaw/workspace/agents/codewarrior/skills/siril-green-reduction/bin/green-reduction advance --project "<project>"
 ```
 
-Do not read broad pipeline/source files first and do not use discovery commands.
-If `confirmation_required`, ask the returned question once. After confirmation
-use one `confirm-fresh && advance` Exec. Do not migrate v1.0.5/v1.0.4 authorization across this candidate-policy change;
-obtain one new confirmation and bind it to the v1.0.6 processing-policy revision.
+Do not read pipeline/source/manifests first and do not use discovery commands.
+If `confirmation_required`, ask the returned question once. After confirmation,
+use one `confirm-fresh && advance` Exec. If an earlier matching durable v1.0.4
+authorization exists, v1.0.5 migrates it and must not ask again.
 
-For `visual_review_required`, Read every exact returned path verbatim. Then make
-one `review-publish` call using `--selected` and the separate c0/c1/c2 green,
-magenta, and structure fields. Never call legacy `select-publish` directly.
+For `visual_review_required`, Read every exact returned path verbatim. Then use
+**one** `review-publish` Exec. Never call legacy `select-publish` directly and
+never serialize `candidate-NN=green:...;magenta:...;structure:...` yourself.
 
-Candidate policy for new runs:
-- candidate-00 = 0.00, no correction
-- candidate-01 = 0.10, mild correction
-- candidate-02 = 0.15, moderate correction requiring an override reason
+Use separate flags `--c0-green`, `--c0-magenta`, `--c0-structure`, likewise c1
+and c2, for every eligible candidate. Each value is one specific visual phrase.
+Autonomously select the least aggressive satisfactory candidate. Add
+`--policy-override-reason` only if candidate-02 is selected.
 
-Prefer no correction if SHO green already looks natural; otherwise choose the
-least correction that improves unwanted green without magenta/purple or faint
-structure loss. On blockers stop; no `ls`, `find`, manual manifest inspection,
-or run-root exploration. `ready` hands off to `siril-saturation` and stops.
-<!-- OPENCLAW_GREEN_REDUCTION_FAST_ROUTE_V106_END -->
+Expected normal post-review tool count: one review-publish call. On any blocker,
+stop; no ls/find/manual manifest or run-root investigation. A `ready` result
+hands off to `siril-saturation` and stops.
+<!-- OPENCLAW_GREEN_REDUCTION_FAST_ROUTE_V105_END -->
 
 
 <!-- OPENCLAW_BLACK_POINT_FAST_ROUTE_V106_BEGIN -->
