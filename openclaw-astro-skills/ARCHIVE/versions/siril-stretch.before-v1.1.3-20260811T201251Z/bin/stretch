@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cat <<'USAGE'
+siril-stretch helper wrapper
+
+This is a local helper entrypoint for the siril-stretch skill.
+It documents the intended orchestration model:
+
+  1. Analyze input image and histogram.
+  2. Produce 3 full GHS→BP candidates for the round.
+  3. Perform technical analysis.
+  4. Perform exact-path visual review.
+  5. Select round winner.
+  6. Repeat for another round if justified.
+  7. Stop after a minimum of 2 rounds and maximum of 5 rounds.
+  8. Prepare final 3-candidate review from preserved round winners.
+
+Recommended autonomous prompt:
+  Process <project name> with stretch
+
+This wrapper is intentionally lightweight; Siril transformations should be executed
+through the companion scripts in scripts/.
+USAGE

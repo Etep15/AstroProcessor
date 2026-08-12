@@ -1,0 +1,22 @@
+siril-stretch v1.2.5 policy refinement
+
+What changes relative to v1.2.4:
+
+1. Keep the successful v1.2.4 Round-2 calibrated profile family as the starting point.
+2. Increase anti-overshoot scoring penalties once a candidate exceeds the preferred brightness neighborhood.
+3. Prefer candidates with stronger normalized color contrast at slightly lower median luminance.
+4. Add a softer-stop rule: if Round 2 is already strong, later rounds may continue only if they materially improve color contrast or structure without pushing median / p95 / p99.9 too high.
+5. Final selection explicitly favors a slightly dimmer candidate when color separation is comparable.
+
+Guidance neighborhood for the M16 calibration probe (advisory, not universal runtime hard targets):
+- median: roughly 0.18 to 0.24
+- p95: not much above ~0.36
+- p99.9: not much above ~0.69 to 0.70
+- saturation median: >= 0.26
+- color_contrast_index: >= 0.31
+- zero new clipping required
+
+Round-2 profile emphasis:
+- conservative / balanced / color-contrast profiles remain grounded in the v1.2.4 search family
+- production scoring is biased slightly toward the darker side of that family
+- continuation after Round 2 is discouraged unless later rounds improve color separation more than brightness

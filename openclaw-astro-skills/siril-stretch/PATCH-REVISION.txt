@@ -1,0 +1,3 @@
+siril-stretch v1.2.5 r4
+Patch scope: selection/scoring refinement only
+Candidate generation and calibrated Round-2 transform profiles: unchanged from v1.2.5 r3

@@ -1,0 +1,3 @@
+siril-stretch v1.2.5
+Installer policy label: gentler-brightness-refinement
+This version is intended to keep v1.2.4 color recovery while reducing slight over-brightness / over-stretch.

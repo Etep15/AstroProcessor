@@ -1,0 +1,14 @@
+Fail-closed staged checks for v1.2.5:
+
+1. Static validation of staged policy files.
+2. Real-Siril mechanical self-test.
+3. Non-destructive stride-4 M16 calibration probe.
+4. Require at least one zero-clipping candidate with:
+   - median between 0.18 and 0.24
+   - saturation median >= 0.26
+   - color_contrast_index >= 0.31
+   - p99.9 <= 0.70
+   - improved brightness placement versus the current v1.2.4 canonical.
+5. Exact-profile staged regression.
+6. Verify staging changed no production evidence.
+7. Preservation-safe installation only if all staged checks pass.

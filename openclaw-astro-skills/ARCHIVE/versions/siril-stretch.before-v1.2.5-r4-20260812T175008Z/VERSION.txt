@@ -1,0 +1,3 @@
+siril-stretch v1.2.5 functional
+Processing refinement: Round-2 GHS highlight protection calibration
+This supersedes the earlier marker-only v1.2.5 installer.
