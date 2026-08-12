@@ -1,0 +1,3 @@
+siril-green-reduction v1.1.1
+Patch label: functional-stretch-upstream
+Processing policy remains optional-noop-0.00-0.10-0.15-v1; upstream contract is siril-stretch-canonical-v1.

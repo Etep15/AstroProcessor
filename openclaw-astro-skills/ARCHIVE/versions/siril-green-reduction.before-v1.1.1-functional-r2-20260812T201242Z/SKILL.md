@@ -24,7 +24,7 @@ Process M16 July 2026 with green reduction.
 ## Placement
 
 ```text
-siril-stretch
+siril-black-point
 → siril-green-reduction
 → siril-saturation
 ```
@@ -32,8 +32,8 @@ siril-stretch
 Required upstream:
 
 ```text
-processing/stretch/SHO-starless-stretched.fit
-processing/stretch/stretch-manifest.json
+processing/black-point/SHO-starless-black-point.fit
+processing/black-point/black-point-manifest.json
 ```
 
 The upstream black-point manifest must be v1.0.4, `ready`, visually reviewed,
@@ -162,7 +162,7 @@ answered yes:
 ```text
 processing/green-reduction/
 ├── SHO-starless-green-reduced.fit
-├── SHO-starless-stretched-before-green-reduction.png
+├── SHO-starless-black-point-before-green-reduction.png
 ├── SHO-starless-green-reduced.png
 └── green-reduction-manifest.json
 ```
@@ -203,7 +203,7 @@ or later stages.
 <!-- OPENCLAW_GREEN_REDUCTION_V106_ORCHESTRATION_BEGIN -->
 ## v1.0.6 optional/no-op green reduction and deterministic review contract
 
-Orchestration version: **1.1.1**. The underlying helper keeps compatibility
+Orchestration version: **1.0.6**. The underlying helper keeps compatibility
 version **1.0.3**, but its candidate policy is revised to the bounded set below:
 
 ```text

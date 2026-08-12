@@ -1,0 +1,38 @@
+siril-green-reduction v1.1.0 stretch-upstream contract patch
+
+Summary
+-------
+This patch updates the green-reduction stage to consume the canonical output of the new `siril-stretch` stage.
+
+New upstream expectations
+-------------------------
+The stage should now use:
+
+- processing/stretch/SHO-starless-stretched.fit
+- processing/stretch/stretch-manifest.json
+
+Required provenance behavior
+----------------------------
+Before running green reduction, validate:
+
+1. the stretch FITS exists;
+2. the stretch manifest exists;
+3. the stretch manifest status is `ready`;
+4. the stretch manifest output path points to the canonical stretch FITS;
+5. the stretch manifest contains a source SHA-256 / output SHA-256.
+
+Completed-but-obsolete behavior
+-------------------------------
+If an existing green-reduction canonical was produced from an older upstream chain (for example old GHS/black-point routing rather than `siril-stretch`), the stage should report that green reduction is already complete but obsolete relative to the current upstream and should request confirmation before running a fresh replacement.
+
+What this patch does NOT change
+-------------------------------
+- green-reduction processing math
+- candidate generation logic
+- exact-path review policy
+- autonomous selection logic
+- publication logic
+
+Recommended production prompt
+-----------------------------
+Process M16 July 2026 with green reduction

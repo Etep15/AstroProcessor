@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-ORCHESTRATION_VERSION = "1.1.1"
+ORCHESTRATION_VERSION = "1.0.6"
 PROCESSING_HELPER_VERSION = "1.0.3"
 PROCESSING_POLICY_REVISION = "optional-noop-0.00-0.10-0.15-v1"
 WORKSPACE = Path(os.environ.get(
@@ -82,21 +82,28 @@ def safe_project(project_name: str) -> tuple[str, Path]:
 
 def paths(project_name: str) -> dict[str, Path]:
     name, project = safe_project(project_name)
-    stretch = project / "processing/stretch"
+    black = project / "processing/black-point"
     green = project / "processing/green-reduction"
-    state = project / ".siril-green-reduction-v1.1.1"
+    state = project / ".siril-green-reduction-v1.0.6"
     legacy_v105_state = project / ".siril-green-reduction-v1.0.5"
     legacy_v104_state = project / ".siril-green-reduction-v1.0.4"
     return {
-        "project_name": Path(name), "project": project,
-        "stretch_dir": stretch, "stretch_output": stretch / "SHO-starless-stretched.fit",
-        "stretch_manifest": stretch / "stretch-manifest.json",
-        "green_dir": green, "green_output": green / "SHO-starless-green-reduced.fit",
+        "project_name": Path(name),
+        "project": project,
+        "black_dir": black,
+        "black_output": black / "SHO-starless-black-point.fit",
+        "black_manifest": black / "black-point-manifest.json",
+        "green_dir": green,
+        "green_output": green / "SHO-starless-green-reduced.fit",
         "green_manifest": green / "green-reduction-manifest.json",
-        "state": state, "fresh_intent": state / "fresh-intent.json",
-        "legacy_v105_state": legacy_v105_state, "legacy_v105_fresh_intent": legacy_v105_state / "fresh-intent.json",
-        "legacy_v104_state": legacy_v104_state, "legacy_v104_fresh_intent": legacy_v104_state / "fresh-intent.json",
+        "state": state,
+        "fresh_intent": state / "fresh-intent.json",
+        "legacy_v105_state": legacy_v105_state,
+        "legacy_v105_fresh_intent": legacy_v105_state / "fresh-intent.json",
+        "legacy_v104_state": legacy_v104_state,
+        "legacy_v104_fresh_intent": legacy_v104_state / "fresh-intent.json",
     }
+
 
 def valid_sha(value: Any) -> bool:
     return isinstance(value, str) and HEX64.fullmatch(value) is not None
@@ -121,157 +128,351 @@ def check_small_file_evidence(path: Path, evidence: dict[str, Any], canonical_pa
 
 def fast_completed_status(project_name: str) -> dict[str, Any]:
     p = paths(project_name)
-    sm_path, sf_path = p["stretch_manifest"], p["stretch_output"]
-    gm_path, gf_path = p["green_manifest"], p["green_output"]
-    if not sm_path.is_file() or not sf_path.is_file():
-        return {"status":"blocked","current_canonical_status":"unknown","project":str(p["project"]),"error":"Current siril-stretch canonical prerequisite is missing. Run/repair siril-stretch first."}
-    stretch=json_read(sm_path); errors=[]
-    if stretch.get("status") != "ready": errors.append("Stretch manifest status is not ready.")
-    if stretch.get("visual_review_completed") is not True: errors.append("Stretch visual review is incomplete.")
-    if stretch.get("next_stage") != "siril-green-reduction": errors.append("Stretch does not hand off to siril-green-reduction.")
-    if stretch.get("green_reduction_permitted") is not True: errors.append("Stretch does not permit green reduction.")
-    order=stretch.get("stage_order") or {}
-    if order.get("current") != "siril-stretch": errors.append("Stretch stage_order.current is not siril-stretch.")
-    if order.get("downstream") != "siril-green-reduction": errors.append("Stretch stage_order.downstream is not siril-green-reduction.")
-    sout=stretch.get("output") or {}; errors.extend(check_small_file_evidence(sf_path,sout,sf_path,"Stretch"))
-    if errors: return {"status":"blocked","current_canonical_status":"unknown","project":str(p["project"]),"errors":errors,"error":"Current siril-stretch prerequisite failed the manifest-first contract."}
-    upstream_manifest_sha=sha256_file(sm_path); current_sha=sout["sha256"]
-    green_exists=gm_path.is_file() or gf_path.exists()
+    bm_path = p["black_manifest"]
+    bf_path = p["black_output"]
+    gm_path = p["green_manifest"]
+    gf_path = p["green_output"]
+
+    if not bm_path.is_file() or not bf_path.is_file():
+        return {
+            "status": "blocked",
+            "current_canonical_status": "unknown",
+            "project": str(p["project"]),
+            "error": "Current black-point canonical prerequisite is missing. Run/repair siril-black-point first.",
+        }
+
+    black = json_read(bm_path)
+    black_errors: list[str] = []
+    if black.get("status") != "ready":
+        black_errors.append("Black-point manifest status is not ready.")
+    if black.get("helper_version") != "1.0.4":
+        black_errors.append("Black-point helper version is not 1.0.4.")
+    if recorded_policy(black) != "1.0.4":
+        black_errors.append("Black-point selection policy is not 1.0.4.")
+    if black.get("visual_review_completed") is not True:
+        black_errors.append("Black-point visual review is incomplete.")
+    if (black.get("quality_assessment") or {}).get("satisfactory") is not True:
+        black_errors.append("Black-point quality assessment is not satisfactory.")
+    if black.get("next_stage") != "siril-green-reduction":
+        black_errors.append("Black point does not hand off to siril-green-reduction.")
+    if black.get("green_reduction_processing_permitted") is not True:
+        black_errors.append("Black point does not permit green reduction.")
+    bout = black.get("output") or {}
+    black_errors.extend(check_small_file_evidence(bf_path, bout, bf_path, "Black-point"))
+    if black_errors:
+        return {
+            "status": "blocked",
+            "current_canonical_status": "unknown",
+            "project": str(p["project"]),
+            "errors": black_errors,
+            "error": "Current black-point prerequisite failed the manifest-first contract.",
+        }
+
+    black_manifest_sha = sha256_file(bm_path)
+    current_black_sha = bout["sha256"]
+
+    green_exists = gm_path.is_file() or gf_path.exists()
     if not green_exists:
-        return {"status":"missing","current_canonical_status":"missing","project":str(p["project"]),"current_upstream_source_sha256":current_sha,"upstream_manifest_sha256":upstream_manifest_sha,"manifest_first":True,"pre_confirmation_large_fits_hashing":False}
+        return {
+            "status": "missing",
+            "current_canonical_status": "missing",
+            "project": str(p["project"]),
+            "current_upstream_source_sha256": current_black_sha,
+            "black_manifest_sha256": black_manifest_sha,
+            "manifest_first": True,
+            "pre_confirmation_large_fits_hashing": False,
+        }
     if not (gm_path.is_file() and gf_path.is_file()):
-        return {"status":"blocked","current_canonical_status":"invalid","project":str(p["project"]),"error":"Green-reduction canonical is partial: output and manifest must either both exist or both be absent.","manifest_first":True,"pre_confirmation_large_fits_hashing":False}
-    green=json_read(gm_path); gerrors=[]
-    if green.get("status") != "ready": gerrors.append("Green-reduction manifest status is not ready.")
-    if green.get("helper_version") != PROCESSING_HELPER_VERSION: gerrors.append(f"Green-reduction helper version is not {PROCESSING_HELPER_VERSION}.")
-    if green.get("visual_review_completed") is not True: gerrors.append("Green-reduction visual review is incomplete.")
-    if (green.get("quality_assessment") or {}).get("satisfactory") is not True: gerrors.append("Green-reduction quality assessment is not satisfactory.")
-    if green.get("next_stage") != "siril-saturation": gerrors.append("Green reduction does not hand off to siril-saturation.")
-    if green.get("saturation_processing_permitted") is not True: gerrors.append("Green reduction does not permit saturation.")
-    gout=green.get("output") or {}; gsrc=green.get("source") or {}; gerrors.extend(check_small_file_evidence(gf_path,gout,gf_path,"Green-reduction"))
-    if not valid_sha(gsrc.get("sha256")): gerrors.append("Green-reduction recorded source SHA is missing or invalid.")
-    if not isinstance(gsrc.get("path"),str): gerrors.append("Green-reduction recorded source path is missing.")
-    if gerrors: return {"status":"blocked","current_canonical_status":"invalid","project":str(p["project"]),"errors":gerrors,"error":"Existing green-reduction canonical is not a mature completed result.","manifest_first":True,"pre_confirmation_large_fits_hashing":False}
-    recorded_upstream=(green.get("stage_order") or {}).get("upstream")
-    path_current=gsrc.get("path")==str(sf_path); sha_current=gsrc.get("sha256")==current_sha; stage_current=recorded_upstream=="siril-stretch"
-    source_relation="ready" if path_current and sha_current and stage_current else "obsolete"
-    recorded_revision=green.get("processing_policy_revision"); policy_current=recorded_revision==PROCESSING_POLICY_REVISION
-    obsolete=[]
-    if not path_current: obsolete.append("Green-reduction source path is not the current siril-stretch canonical FITS.")
-    if not sha_current: obsolete.append("Green-reduction source checksum differs from the current siril-stretch result.")
-    if not stage_current: obsolete.append("Green-reduction recorded upstream stage is not siril-stretch.")
-    if not policy_current: obsolete.append("Green-reduction canonical uses an older candidate policy revision.")
-    relation="ready" if source_relation=="ready" and policy_current else "obsolete"
-    return {"status":"completed","current_canonical_status":relation,"source_relation":source_relation,"processing_policy_revision":recorded_revision,"target_processing_policy_revision":PROCESSING_POLICY_REVISION,"processing_policy_current":policy_current,"project":str(p["project"]),"current_upstream_source_sha256":current_sha,"upstream_manifest_sha256":upstream_manifest_sha,"canonical_manifest_sha256":sha256_file(gm_path),"canonical_output_sha256":gout["sha256"],"recorded_source_sha256":gsrc.get("sha256"),"recorded_upstream_stage":recorded_upstream,"obsolete_reasons":obsolete,"manifest_first":True,"pre_confirmation_large_fits_hashing":False}
+        return {
+            "status": "blocked",
+            "current_canonical_status": "invalid",
+            "project": str(p["project"]),
+            "error": "Green-reduction canonical is partial: output and manifest must either both exist or both be absent.",
+            "manifest_first": True,
+            "pre_confirmation_large_fits_hashing": False,
+        }
+
+    green = json_read(gm_path)
+    green_errors: list[str] = []
+    if green.get("status") != "ready":
+        green_errors.append("Green-reduction manifest status is not ready.")
+    if green.get("helper_version") != PROCESSING_HELPER_VERSION:
+        green_errors.append(f"Green-reduction helper version is not {PROCESSING_HELPER_VERSION}.")
+    if green.get("visual_review_completed") is not True:
+        green_errors.append("Green-reduction visual review is incomplete.")
+    if (green.get("quality_assessment") or {}).get("satisfactory") is not True:
+        green_errors.append("Green-reduction quality assessment is not satisfactory.")
+    if green.get("next_stage") != "siril-saturation":
+        green_errors.append("Green reduction does not hand off to siril-saturation.")
+    if green.get("saturation_processing_permitted") is not True:
+        green_errors.append("Green reduction does not permit saturation.")
+    gout = green.get("output") or {}
+    gsrc = green.get("source") or {}
+    green_errors.extend(check_small_file_evidence(gf_path, gout, gf_path, "Green-reduction"))
+    if gsrc.get("path") != str(bf_path):
+        green_errors.append("Green-reduction recorded source path is not the canonical black-point FITS.")
+    if not valid_sha(gsrc.get("sha256")):
+        green_errors.append("Green-reduction recorded source SHA is missing or invalid.")
+    if green_errors:
+        return {
+            "status": "blocked",
+            "current_canonical_status": "invalid",
+            "project": str(p["project"]),
+            "errors": green_errors,
+            "error": "Existing green-reduction canonical is not a mature completed v1.0.3 result.",
+            "manifest_first": True,
+            "pre_confirmation_large_fits_hashing": False,
+        }
+
+    source_relation = "ready" if gsrc["sha256"] == current_black_sha else "obsolete"
+    recorded_revision = green.get("processing_policy_revision")
+    policy_current = recorded_revision == PROCESSING_POLICY_REVISION
+    obsolete_reasons: list[str] = []
+    if source_relation != "ready":
+        obsolete_reasons.append("Green-reduction source checksum differs from the current black-point result.")
+    if not policy_current:
+        obsolete_reasons.append(
+            "Green-reduction canonical predates the v1.0.6 no-correction/0.10/0.15 candidate policy."
+        )
+    relation = "ready" if source_relation == "ready" and policy_current else "obsolete"
+    return {
+        "status": "completed",
+        "current_canonical_status": relation,
+        "source_relation": source_relation,
+        "processing_policy_revision": recorded_revision,
+        "target_processing_policy_revision": PROCESSING_POLICY_REVISION,
+        "processing_policy_current": policy_current,
+        "project": str(p["project"]),
+        "current_upstream_source_sha256": current_black_sha,
+        "black_manifest_sha256": black_manifest_sha,
+        "canonical_manifest_sha256": sha256_file(gm_path),
+        "canonical_output_sha256": gout["sha256"],
+        "recorded_source_sha256": gsrc["sha256"],
+        "obsolete_reasons": obsolete_reasons,
+        "manifest_first": True,
+        "pre_confirmation_large_fits_hashing": False,
+    }
+
 
 def auth_read(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise OrchestrationError(f"Could not read fresh-run authorization {path}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise OrchestrationError(f"Fresh-run authorization root must be an object: {path}")
-    return value
+    except Exception:
+        return None
+    return value if isinstance(value, dict) else None
 
 
-def write_auth_payload(
-    project_name: str,
-    state: dict[str, Any],
-    payload: dict[str, Any],
-) -> Path:
+def auth_fields_match(auth: dict[str, Any], project_name: str, state: dict[str, Any]) -> bool:
     p = paths(project_name)
-    p["state"].mkdir(parents=True, exist_ok=True)
-    intent = p["fresh_intent"]
-    tmp = intent.with_name(f".{intent.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, intent)
-    return intent
+    return (
+        auth.get("project") == str(p["project"])
+        and auth.get("canonical_relation_at_authorization") == state.get("current_canonical_status")
+        and auth.get("current_black_manifest_sha256") == state.get("black_manifest_sha256")
+        and auth.get("current_black_output_sha256") == state.get("current_upstream_source_sha256")
+        and auth.get("preserved_green_manifest_sha256") == state.get("canonical_manifest_sha256")
+        and auth.get("preserved_green_output_sha256") == state.get("canonical_output_sha256")
+        and auth.get("target_processing_policy_revision") == PROCESSING_POLICY_REVISION
+    )
 
 
-def ensure_authorized(
-    project_name: str,
-    state: dict[str, Any],
-) -> tuple[bool, Path | None, bool]:
+def auth_fast_matches(project_name: str, state: dict[str, Any]) -> bool:
+    if state.get("status") != "completed":
+        return False
     p = paths(project_name)
-    intent = p["fresh_intent"]
-    auth = auth_read(intent)
-    if auth is None:
-        return False, None, False
+    auth = auth_read(p["fresh_intent"])
+    return bool(
+        auth
+        and auth.get("status") == "fresh_run_authorized"
+        and auth.get("orchestration_version") == ORCHESTRATION_VERSION
+        and auth_fields_match(auth, project_name, state)
+    )
 
-    # A v1.0.4/v1.0.5 authorization must never migrate across the
-    # black-point -> siril-stretch upstream-contract change. Reuse only an
-    # exact v1.1.1 authorization bound to the current stretch and preserved
-    # green-reduction evidence.
-    expected = {
+
+def legacy_v105_auth_matches(project_name: str, state: dict[str, Any]) -> bool:
+    if state.get("status") != "completed":
+        return False
+    p = paths(project_name)
+    auth = auth_read(p["legacy_v105_fresh_intent"])
+    return bool(
+        auth
+        and auth.get("status") == "fresh_run_authorized"
+        and auth.get("orchestration_version") == "1.0.5"
+        and auth.get("processing_helper_version") == PROCESSING_HELPER_VERSION
+        and auth_fields_match(auth, project_name, state)
+    )
+
+
+def migrate_legacy_v105_auth(project_name: str, state: dict[str, Any]) -> Path:
+    if not legacy_v105_auth_matches(project_name, state):
+        raise OrchestrationError("No matching v1.0.5 durable authorization is available to migrate.")
+    p = paths(project_name)
+    old = auth_read(p["legacy_v105_fresh_intent"])
+    assert old is not None
+    payload = {
+        "schema_version": 1,
         "status": "fresh_run_authorized",
         "orchestration_version": ORCHESTRATION_VERSION,
         "processing_helper_version": PROCESSING_HELPER_VERSION,
+        "authorized_at": old.get("authorized_at") or utc_now(),
+        "migrated_at": utc_now(),
+        "migrated_from_orchestration_version": "1.0.5",
         "project": str(p["project"]),
-        "canonical_relation_at_authorization": state.get("current_canonical_status"),
-        "target_processing_policy_revision": PROCESSING_POLICY_REVISION,
-        "current_upstream_manifest_sha256": state.get("upstream_manifest_sha256"),
-        "current_upstream_output_sha256": state.get("current_upstream_source_sha256"),
-        "preserved_green_manifest_sha256": state.get("canonical_manifest_sha256"),
-        "preserved_green_output_sha256": state.get("canonical_output_sha256"),
+        "canonical_relation_at_authorization": state["current_canonical_status"],
+        "current_black_manifest_sha256": state["black_manifest_sha256"],
+        "current_black_output_sha256": state["current_upstream_source_sha256"],
+        "preserved_green_manifest_sha256": state["canonical_manifest_sha256"],
+        "preserved_green_output_sha256": state["canonical_output_sha256"],
     }
-    for key, value in expected.items():
-        if auth.get(key) != value:
-            return False, intent, False
-    return True, intent, False
+    return write_auth_payload(project_name, state, payload)
+
+
+def legacy_v104_auth_matches(project_name: str, state: dict[str, Any]) -> bool:
+    if state.get("status") != "completed":
+        return False
+    p = paths(project_name)
+    auth = auth_read(p["legacy_v104_fresh_intent"])
+    return bool(
+        auth
+        and auth.get("status") == "fresh_run_authorized"
+        and auth.get("orchestration_version") == "1.0.4"
+        and auth.get("processing_helper_version") == PROCESSING_HELPER_VERSION
+        and auth_fields_match(auth, project_name, state)
+    )
+
+
+def write_auth_payload(project_name: str, state: dict[str, Any], payload: dict[str, Any]) -> Path:
+    p = paths(project_name)
+    p["state"].mkdir(parents=True, exist_ok=True)
+    target = p["fresh_intent"]
+    temp = target.with_suffix(".json.tmp")
+    temp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(temp, target)
+    return target
+
+
+def migrate_legacy_v104_auth(project_name: str, state: dict[str, Any]) -> Path:
+    if not legacy_v104_auth_matches(project_name, state):
+        raise OrchestrationError("No matching v1.0.4 durable authorization is available to migrate.")
+    p = paths(project_name)
+    old = auth_read(p["legacy_v104_fresh_intent"])
+    assert old is not None
+    payload = {
+        "schema_version": 1,
+        "status": "fresh_run_authorized",
+        "orchestration_version": ORCHESTRATION_VERSION,
+        "processing_helper_version": PROCESSING_HELPER_VERSION,
+        "authorized_at": old.get("authorized_at") or utc_now(),
+        "migrated_at": utc_now(),
+        "migrated_from_orchestration_version": "1.0.4",
+        "project": str(p["project"]),
+        "canonical_relation_at_authorization": state["current_canonical_status"],
+        "current_black_manifest_sha256": state["black_manifest_sha256"],
+        "current_black_output_sha256": state["current_upstream_source_sha256"],
+        "preserved_green_manifest_sha256": state["canonical_manifest_sha256"],
+        "preserved_green_output_sha256": state["canonical_output_sha256"],
+    }
+    return write_auth_payload(project_name, state, payload)
+
+
+def ensure_authorized(project_name: str, state: dict[str, Any]) -> tuple[bool, Path | None, bool]:
+    p = paths(project_name)
+    if auth_fast_matches(project_name, state):
+        return True, p["fresh_intent"], False
+    if legacy_v105_auth_matches(project_name, state):
+        return True, migrate_legacy_v105_auth(project_name, state), True
+    if legacy_v104_auth_matches(project_name, state):
+        return True, migrate_legacy_v104_auth(project_name, state), True
+    return False, None, False
 
 
 def legacy_call(argv: list[str]) -> tuple[int, dict[str, Any], str]:
-    try:
-        proc = subprocess.run(
-            [str(LEGACY_WRAPPER), *argv],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=os.environ.copy(),
-        )
-    except OSError as exc:
-        return 2, {
-            "status": "blocked",
-            "error": "Could not execute preserved v1.0.3 wrapper: " + compact_text(exc),
-        }, str(exc)
-
+    proc = subprocess.run(
+        [str(LEGACY_WRAPPER), *argv],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     raw = proc.stdout.strip()
     try:
         payload = json.loads(raw) if raw else {}
     except Exception:
         payload = {
             "status": "blocked",
-            "error": "Preserved v1.0.3 wrapper returned non-JSON output: "
-                     + compact_text(raw or proc.stderr),
+            "error": f"Legacy green-reduction wrapper returned non-JSON output: {compact_text(raw or proc.stderr)}",
         }
     if not isinstance(payload, dict):
-        payload = {
-            "status": "blocked",
-            "error": "Preserved v1.0.3 wrapper returned non-object JSON.",
-        }
+        payload = {"status": "blocked", "error": "Legacy green-reduction wrapper returned a non-object JSON payload."}
     return proc.returncode, payload, proc.stderr
 
 
 def confirmation_payload(project_name: str, state: dict[str, Any]) -> dict[str, Any]:
-    relation=state["current_canonical_status"]
-    if relation=="obsolete":
-        question=f"Green reduction for {project_name} has already completed but is obsolete for the current siril-stretch result/upstream contract. Do you want me to run it again as a fresh run?"
+    relation = state["current_canonical_status"]
+    if relation == "obsolete":
+        reasons = list(state.get("obsolete_reasons") or [])
+        policy_obsolete = any("candidate policy" in str(reason) for reason in reasons)
+        source_obsolete = state.get("source_relation") == "obsolete"
+        if policy_obsolete and not source_obsolete:
+            question = (
+                f"Green reduction for {project_name} has already completed, but it uses the older "
+                "0.10/0.15/0.20 candidate policy. Do you want me to rerun it with the new "
+                "no-correction/0.10/0.15 policy?"
+            )
+        elif policy_obsolete and source_obsolete:
+            question = (
+                f"Green reduction for {project_name} has already completed but is obsolete for the current "
+                "black-point result and the new green-reduction candidate policy. Do you want me to run it "
+                "again as a fresh run?"
+            )
+        else:
+            question = (
+                f"Green reduction for {project_name} has already completed but is obsolete for the current "
+                "black-point result. Do you want me to run it again as a fresh run?"
+            )
     else:
-        question=f"Green reduction for {project_name} has already completed successfully. Do you want me to run it again as a fresh run?"
-    quoted=project_name.replace('"','\"'); public=str(PUBLIC_WRAPPER)
-    return {"status":"confirmation_required","current_canonical_status":relation,"obsolete_reasons":list(state.get("obsolete_reasons") or []),"question":question,"manifest_first":True,"pre_confirmation_large_fits_hashing":False,"production_processing_started":False,"next_command_after_confirmation":f'{public} confirm-fresh --project "{quoted}" && {public} advance --project "{quoted}"'}
+        question = (
+            f"Green reduction for {project_name} has already completed successfully. "
+            "Do you want me to run it again as a fresh run?"
+        )
+    quoted = project_name.replace('"', '\\"')
+    public = str(PUBLIC_WRAPPER)
+    return {
+        "status": "confirmation_required",
+        "current_canonical_status": relation,
+        "question": question,
+        "manifest_first": True,
+        "pre_confirmation_large_fits_hashing": False,
+        "production_processing_started": False,
+        "next_command_after_confirmation": (
+            f'{public} confirm-fresh --project "{quoted}" && '
+            f'{public} advance --project "{quoted}"'
+        ),
+    }
+
 
 def full_hash_binding(project_name: str, state: dict[str, Any]) -> dict[str, str]:
-    p=paths(project_name)
-    upstream_manifest_sha=sha256_file(p["stretch_manifest"]); upstream_output_sha=sha256_file(p["stretch_output"])
-    green_manifest_sha=sha256_file(p["green_manifest"]); green_output_sha=sha256_file(p["green_output"])
-    if upstream_manifest_sha != state["upstream_manifest_sha256"]: raise OrchestrationError("Stretch manifest changed while confirming the fresh run.")
-    if upstream_output_sha != state["current_upstream_source_sha256"]: raise OrchestrationError("Current stretch FITS does not match its manifest SHA.")
-    if green_manifest_sha != state["canonical_manifest_sha256"]: raise OrchestrationError("Green-reduction manifest changed while confirming the fresh run.")
-    if green_output_sha != state["canonical_output_sha256"]: raise OrchestrationError("Preserved green-reduction FITS does not match its manifest SHA.")
-    return {"current_upstream_manifest_sha256":upstream_manifest_sha,"current_upstream_output_sha256":upstream_output_sha,"preserved_green_manifest_sha256":green_manifest_sha,"preserved_green_output_sha256":green_output_sha}
+    p = paths(project_name)
+    current_black_manifest_sha = sha256_file(p["black_manifest"])
+    current_black_output_sha = sha256_file(p["black_output"])
+    preserved_green_manifest_sha = sha256_file(p["green_manifest"])
+    preserved_green_output_sha = sha256_file(p["green_output"])
+
+    if current_black_manifest_sha != state["black_manifest_sha256"]:
+        raise OrchestrationError("Black-point manifest changed while confirming the fresh run.")
+    if current_black_output_sha != state["current_upstream_source_sha256"]:
+        raise OrchestrationError("Current black-point FITS does not match its manifest SHA.")
+    if preserved_green_manifest_sha != state["canonical_manifest_sha256"]:
+        raise OrchestrationError("Green-reduction manifest changed while confirming the fresh run.")
+    if preserved_green_output_sha != state["canonical_output_sha256"]:
+        raise OrchestrationError("Preserved green-reduction FITS does not match its manifest SHA.")
+    return {
+        "current_black_manifest_sha256": current_black_manifest_sha,
+        "current_black_output_sha256": current_black_output_sha,
+        "preserved_green_manifest_sha256": preserved_green_manifest_sha,
+        "preserved_green_output_sha256": preserved_green_output_sha,
+    }
+
 
 def write_auth(project_name: str, state: dict[str, Any], binding: dict[str, str]) -> Path:
     p = paths(project_name)

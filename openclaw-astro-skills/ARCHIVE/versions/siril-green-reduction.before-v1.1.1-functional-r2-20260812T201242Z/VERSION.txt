@@ -1,0 +1,3 @@
+siril-green-reduction v1.1.0
+Patch label: stretch-upstream-contract
+Scope: provenance/upstream contract update only.

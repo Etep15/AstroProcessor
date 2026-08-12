@@ -1,0 +1,31 @@
+{
+  "stage": "siril-green-reduction",
+  "orchestration_version": "1.1.0",
+  "processing_engine_version": "1.0.3",
+  "upstream": {
+    "stage": "siril-stretch",
+    "required_status": "ready",
+    "required_output": {
+      "path": "processing/stretch/SHO-starless-stretched.fit",
+      "manifest": "processing/stretch/stretch-manifest.json"
+    },
+    "source_manifest_checks": [
+      "status == ready",
+      "output.path endswith processing/stretch/SHO-starless-stretched.fit",
+      "source sha256 present"
+    ]
+  },
+  "obsolete_prior_canonical_policy": {
+    "treat_prior_outputs_as_obsolete_if_upstream_stage_differs": true,
+    "legacy_upstream_stages": [
+      "siril-ghs-stretch",
+      "siril-black-point",
+      "siril-ghs-stretch-pass2"
+    ],
+    "action": "report_completed_but_obsolete_and_request_fresh_rerun_confirmation"
+  },
+  "downstream": {
+    "unchanged": true,
+    "note": "Green reduction candidate generation, exact-path review, autonomous selection, publication and downstream handoff are unchanged by this contract patch."
+  }
+}

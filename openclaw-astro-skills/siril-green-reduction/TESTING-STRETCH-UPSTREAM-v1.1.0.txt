@@ -1,0 +1,25 @@
+Testing checklist for siril-green-reduction v1.1.0
+
+1. Verify installation files
+   - VERSION.txt exists under the skill root
+   - UPSTREAM-CONTRACT-v1.1.0.json exists under the skill root
+   - PATCH-NOTES-v1.1.0.txt exists under the skill root
+   - TESTING-STRETCH-UPSTREAM-v1.1.0.txt exists under the skill root
+
+2. Verify stretch upstream exists before production run
+   - processing/stretch/SHO-starless-stretched.fit exists
+   - processing/stretch/stretch-manifest.json exists
+   - stretch manifest status is ready
+
+3. Production prompt
+   Process M16 July 2026 with green reduction
+
+4. Expected behavior
+   - if a prior green-reduction result exists from an older upstream, the stage should say it is complete but obsolete and ask for fresh-rerun confirmation;
+   - after confirmation, the stage should consume the `siril-stretch` canonical output;
+   - candidate generation / review / publication behavior should otherwise remain unchanged.
+
+5. What to inspect
+   - green-reduction input source is the stretch FITS, not an old GHS-stage artifact
+   - published green-reduction manifest should record siril-stretch as upstream provenance
+   - no unrelated stretch / GHS / black-point files should be modified by the green-reduction stage itself

@@ -127,14 +127,14 @@ def project_paths(workspace: Path, project_name: str) -> dict[str, Path]:
     runs = project / ".siril-green-reduction"
     return {
         "project": project,
-        "upstream": project / "processing" / "stretch",
-        "upstream_output": project / "processing" / "stretch" / "SHO-starless-stretched.fit",
-        "upstream_manifest": project / "processing" / "stretch" / "stretch-manifest.json",
+        "upstream": project / "processing" / "black-point",
+        "upstream_output": project / "processing" / "black-point" / "SHO-starless-black-point.fit",
+        "upstream_manifest": project / "processing" / "black-point" / "black-point-manifest.json",
         "runs": runs,
         "intents": runs / "stage-intents",
         "stable": stable,
         "stable_output": stable / "SHO-starless-green-reduced.fit",
-        "stable_before_preview": stable / "SHO-starless-stretched-before-green-reduction.png",
+        "stable_before_preview": stable / "SHO-starless-black-point-before-green-reduction.png",
         "stable_after_preview": stable / "SHO-starless-green-reduced.png",
         "stable_manifest": stable / "green-reduction-manifest.json",
     }
@@ -188,27 +188,40 @@ def validate_upstream_fast(paths: dict[str, Path]) -> tuple[dict[str, Any], dict
     manifest_path = paths["upstream_manifest"]
     output_path = paths["upstream_output"]
     if not manifest_path.is_file():
-        raise GreenReductionError(f"Missing stretch manifest: {manifest_path}")
+        raise GreenReductionError(f"Missing black-point manifest: {manifest_path}")
     if not output_path.is_file():
-        raise GreenReductionError(f"Missing stretch FITS: {output_path}")
+        raise GreenReductionError(f"Missing black-point FITS: {output_path}")
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except Exception as exc:
-        raise GreenReductionError(f"Could not read stretch manifest: {exc}") from exc
+        raise GreenReductionError(f"Could not read black-point manifest: {exc}") from exc
     errors: list[str] = []
-    if manifest.get("status") != "ready": errors.append("stretch status must be ready")
-    if manifest.get("visual_review_completed") is not True: errors.append("stretch visual review must be complete")
-    if manifest.get("next_stage") != "siril-green-reduction": errors.append("stretch next_stage must be siril-green-reduction")
-    if manifest.get("green_reduction_permitted") is not True: errors.append("stretch green_reduction_permitted must be true")
-    stage_order = manifest.get("stage_order") or {}
-    if stage_order.get("current") != "siril-stretch": errors.append("stretch stage_order.current must be siril-stretch")
-    if stage_order.get("downstream") != "siril-green-reduction": errors.append("stretch stage_order.downstream must be siril-green-reduction")
-    recorded = manifest.get("output") or {}
+    if manifest.get("helper_version") not in UPSTREAM_HELPER_VERSIONS:
+        errors.append("black-point helper_version must be 1.0.4")
+    if manifest.get("status") != "ready":
+        errors.append("black-point status must be ready")
+    if manifest.get("next_stage") != "siril-green-reduction":
+        errors.append("black-point next_stage must be siril-green-reduction")
+    if manifest.get("green_reduction_processing_permitted") is not True:
+        errors.append("green_reduction_processing_permitted must be true")
+    if manifest.get("visual_review_completed") is not True:
+        errors.append("black-point visual review must be complete")
+    if manifest.get("quality_assessment", {}).get("satisfactory") is not True:
+        errors.append("black-point quality assessment must be satisfactory")
+    if manifest.get("selection_policy", {}).get("version") != "1.0.4":
+        errors.append("black-point selection policy must be v1.0.4")
+    recorded = manifest.get("output", {})
     recorded_path = recorded.get("path")
-    if recorded_path and Path(recorded_path).resolve() != output_path.resolve(): errors.append("stretch manifest output path is not canonical")
+    if recorded_path and Path(recorded_path).resolve() != output_path.resolve():
+        errors.append("black-point manifest output path is not canonical")
+    recorded_size = recorded.get("size")
+    if recorded_size is not None and int(recorded_size) != output_path.stat().st_size:
+        errors.append("black-point FITS size differs from manifest")
     source_sha = recorded.get("sha256")
-    if not isinstance(source_sha, str) or len(source_sha) != 64: errors.append("stretch manifest output SHA is missing")
-    if errors: raise GreenReductionError("Upstream siril-stretch contract failed: " + "; ".join(errors))
+    if not isinstance(source_sha, str) or len(source_sha) != 64:
+        errors.append("black-point manifest output SHA is missing")
+    if errors:
+        raise GreenReductionError("Upstream black-point contract failed: " + "; ".join(errors))
     return manifest, {"path": str(output_path), "sha256": source_sha, "size": output_path.stat().st_size}
 
 
@@ -216,12 +229,18 @@ def validate_upstream(paths: dict[str, Path]) -> tuple[dict[str, Any], FitsEvide
     manifest, fast = validate_upstream_fast(paths)
     evidence = inspect_fits(paths["upstream_output"])
     errors: list[str] = []
-    if evidence.sha256 != fast["sha256"]: errors.append("stretch FITS SHA differs from manifest")
-    if evidence.channels != 3: errors.append("stretch output must be RGB")
-    if evidence.bitpix != -32: errors.append("stretch output must be 32-bit floating FITS")
-    if evidence.finite_fraction != 1.0: errors.append("stretch output must be fully finite")
-    if errors: raise GreenReductionError("Upstream siril-stretch contract failed: " + "; ".join(errors))
+    if evidence.sha256 != fast["sha256"]:
+        errors.append("black-point FITS SHA differs from manifest")
+    if evidence.channels != 3:
+        errors.append("black-point output must be RGB")
+    if evidence.bitpix != -32:
+        errors.append("black-point output must be 32-bit floating FITS")
+    if evidence.finite_fraction != 1.0:
+        errors.append("black-point output must be fully finite")
+    if errors:
+        raise GreenReductionError("Upstream black-point contract failed: " + "; ".join(errors))
     return manifest, evidence
+
 
 def siril_version() -> dict[str, Any]:
     if not SIRIL_APP.is_file() or not os.access(SIRIL_APP, os.X_OK):
@@ -272,10 +291,10 @@ def run_siril_script(*, directory: Path, script: Path, stdout_log: Path, stderr_
 def green_reduction_script_text() -> str:
     lines = [
         f"requires {REQUIRED_SIRIL_VERSION}",
-        'load "SHO-starless-stretched.fit"',
-        'savepng "../common/SHO-starless-stretched-before-green-reduction"',
+        'load "SHO-starless-black-point.fit"',
+        'savepng "../common/SHO-starless-black-point-before-green-reduction"',
         "close",
-        'load "SHO-starless-stretched.fit"',
+        'load "SHO-starless-black-point.fit"',
         'save "../candidate-00/work/SHO-starless-green-reduced.fit"',
         'savepng "../candidate-00/previews/SHO-starless-green-reduced"',
         "close",
@@ -283,7 +302,7 @@ def green_reduction_script_text() -> str:
     for name in ("candidate-01", "candidate-02"):
         amount = CANDIDATE_AMOUNTS[name]
         lines.extend([
-            'load "SHO-starless-stretched.fit"',
+            'load "SHO-starless-black-point.fit"',
             f"rmgreen {RM_GREEN_TYPE} {amount:.3f}",
             f'save "../{name}/work/SHO-starless-green-reduced.fit"',
             f'savepng "../{name}/previews/SHO-starless-green-reduced"',
@@ -412,7 +431,7 @@ def run_project(*, workspace: Path, project_name: str, timeout_seconds: int, max
     for name in CANDIDATE_AMOUNTS:
         (run_root / name / "work").mkdir(parents=True)
         (run_root / name / "previews").mkdir(parents=True)
-    working_source = work / "SHO-starless-stretched.fit"
+    working_source = work / "SHO-starless-black-point.fit"
     shutil.copy2(paths["upstream_output"], working_source)
     if sha256_file(working_source) != source_evidence.sha256:
         raise GreenReductionError("Working source SHA changed while staging green reduction.")
@@ -425,7 +444,7 @@ def run_project(*, workspace: Path, project_name: str, timeout_seconds: int, max
     if run["exit_status"] != 0: failures.append(f"Siril exit {run['exit_status']}")
     if run["timed_out"]: failures.append("Siril timed out")
     if run["fatal_log_markers"]: failures.append(f"fatal log markers {run['fatal_log_markers']}")
-    before = common / "SHO-starless-stretched-before-green-reduction.png"
+    before = common / "SHO-starless-black-point-before-green-reduction.png"
     if not before.is_file(): failures.append("common before preview missing")
     candidates: list[dict[str, Any]] = []
     for name, amount in CANDIDATE_AMOUNTS.items():
@@ -501,7 +520,7 @@ def stage_status(workspace: Path, project_name: str) -> dict[str, Any]:
     elif output.get("size") is not None and int(output["size"]) != paths["stable_output"].stat().st_size: errors.append("canonical output FITS size differs from manifest")
     try:
         _, upstream = validate_upstream_fast(paths)
-        if manifest.get("source", {}).get("sha256") != upstream["sha256"]: errors.append("canonical source SHA differs from current stretch source")
+        if manifest.get("source", {}).get("sha256") != upstream["sha256"]: errors.append("canonical source SHA differs from current black-point source")
     except Exception as exc: errors.append(str(exc))
     ready = not errors
     return {
@@ -526,7 +545,7 @@ def status_project(workspace: Path, project_name: str) -> dict[str, Any]:
         return {**status, "status": "invalid", "canonical_manifest_compatible": False, "saturation_processing_permitted": False, "next_stage": "siril-green-reduction", "errors": [str(exc)]}
     errors: list[str] = []
     if output.sha256 != manifest.get("output", {}).get("sha256"): errors.append("canonical output SHA differs from manifest")
-    if manifest.get("source", {}).get("sha256") != upstream.sha256: errors.append("canonical source SHA differs from current stretch source")
+    if manifest.get("source", {}).get("sha256") != upstream.sha256: errors.append("canonical source SHA differs from current black-point source")
     for preview in (paths["stable_before_preview"], paths["stable_after_preview"]):
         if not preview.is_file(): errors.append(f"missing canonical preview {preview}")
     if errors:
@@ -623,7 +642,7 @@ def review_plan(*, workspace: Path, project_name: str, run_root: Path) -> dict[s
     paths = project_paths(workspace, project_name); _, source = validate_upstream_fast(paths); _, record = load_run_record(run_root)
     if record.get("project_name") != project_name: raise GreenReductionError("Run project does not match requested project.")
     if record.get("helper_version") not in COMPATIBLE_RUN_HELPER_VERSIONS: raise GreenReductionError("Run helper version is incompatible.")
-    if record.get("source", {}).get("sha256") != source["sha256"]: raise GreenReductionError("Run source SHA differs from current stretch canonical source.")
+    if record.get("source", {}).get("sha256") != source["sha256"]: raise GreenReductionError("Run source SHA differs from current black-point canonical source.")
     eligible = list(record.get("publication_eligible_candidates", []))
     if not eligible: raise GreenReductionError("No publication-eligible candidates are available.")
     by_name = {c["candidate"]: c for c in record.get("candidates", [])}
@@ -793,17 +812,17 @@ def publish_project(*, workspace: Path, project_name: str, run_root: Path) -> di
     quality = production_quality_assessment(paths["upstream_output"], output)
     if quality.get("satisfactory") is not True: raise GreenReductionError("Selected candidate failed full publication quality revalidation.")
     preserved_failed = preserve_failed_publish_staging(run_root); staging = run_root / "publish-staging"; staging.mkdir(parents=True, exist_ok=False)
-    staged_output = staging / "SHO-starless-green-reduced.fit"; staged_before = staging / "SHO-starless-stretched-before-green-reduction.png"; staged_after = staging / "SHO-starless-green-reduced.png"; staged_manifest = staging / "green-reduction-manifest.json"
+    staged_output = staging / "SHO-starless-green-reduced.fit"; staged_before = staging / "SHO-starless-black-point-before-green-reduction.png"; staged_after = staging / "SHO-starless-green-reduced.png"; staged_manifest = staging / "green-reduction-manifest.json"
     shutil.copy2(output, staged_output); shutil.copy2(before, staged_before); shutil.copy2(after, staged_after)
     stable_payload = {
         "schema_version": 1, "helper_version": VERSION, "created_at": utc_now(), "project": project_name, "project_path": str(paths["project"]),
-        "stage_order": {"upstream": "siril-stretch", "current": "siril-green-reduction", "downstream": "siril-saturation"}, "source_contract_revision": "siril-stretch-canonical-v1",
+        "stage_order": {"upstream": "siril-black-point", "current": "siril-green-reduction", "downstream": "siril-saturation"},
         "status": "ready", "visual_review_completed": True, "selected_candidate": selected_name, "recommended_candidate": record.get("recommended_candidate"),
         "selected_candidate_was_recommended": selection.get("selected_candidate_was_recommended"), "method": selected["method"], "quality_assessment": quality,
         "output": {**selected["output"], "path": str(paths["stable_output"])}, "source": {**asdict(source), "path": str(paths["upstream_output"])},
         "previews": {"before": str(paths["stable_before_preview"]), "after": str(paths["stable_after_preview"])}, "candidate_policy": record.get("candidate_policy"), "processing_policy_revision": PROCESSING_POLICY_REVISION, "correction_applied": bool(selected["amount"] > 0.0),
         "visual_selection": selection,
-        "upstream_summary": {"stage": "siril-stretch", "orchestration_version": upstream_manifest.get("orchestration_version"), "processing_engine_version": upstream_manifest.get("processing_engine_version"), "manifest": str(paths["upstream_manifest"]), "manifest_sha256": sha256_file(paths["upstream_manifest"]), "status": upstream_manifest.get("status"), "visual_review_completed": upstream_manifest.get("visual_review_completed"), "green_reduction_permitted": upstream_manifest.get("green_reduction_permitted")},
+        "upstream_summary": {"helper_version": upstream_manifest.get("helper_version"), "manifest": str(paths["upstream_manifest"]), "manifest_sha256": sha256_file(paths["upstream_manifest"]), "status": upstream_manifest.get("status"), "visual_review_completed": upstream_manifest.get("visual_review_completed"), "green_reduction_processing_permitted": upstream_manifest.get("green_reduction_processing_permitted"), "selection_policy_version": upstream_manifest.get("selection_policy", {}).get("version")},
         "next_stage": "siril-saturation", "saturation_processing_permitted": True, "run_root": str(run_root), "failed_publish_staging_preserved_at": str(preserved_failed) if preserved_failed else None,
     }
     json_dump_atomic(staged_manifest, stable_payload)
