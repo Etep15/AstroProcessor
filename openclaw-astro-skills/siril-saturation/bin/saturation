@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+ASTRO_PY="/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/.venv/bin/python"
+if [ "${1:-}" = "--version" ]; then printf '1.0.0\n'; exit 0; fi
+exec "$ASTRO_PY" "$ROOT/scripts/saturation.py" "$@"
