@@ -1,0 +1,170 @@
+---
+name: siril-star-processing
+description: "Process a preserved StarNet star layer: neutralize false SHO star colors, substantially dim bright stars while retaining faint stars, target residual red/purple halo artifacts around bright stars, review candidates, and publish for star recombination."
+---
+
+# siril-star-processing
+
+Orchestration version: **1.0.4 r9**  
+Processing engine version: **1.0.4**
+
+## Trigger and ownership
+
+Use this skill when the user asks to process stars after StarNet, including requests such as:
+
+- `Process <project> with star processing.`
+- `Run star processing on <project>.`
+- `Neutralize and reduce the stars for <project>.`
+
+This skill owns **post-StarNet processing of the preserved star branch**.
+
+**Do not invoke `siril-starnet-removal` for these requests.** StarNet removal is an already-completed upstream stage. This skill consumes its preserved star output; it does not repeat StarNet.
+
+Do not use memory search to decide whether this request means StarNet removal. Route directly to this skill when the request says `star processing`, `process the stars`, `neutralize stars`, or `dim/reduce stars` in the post-StarNet workflow.
+
+## Canonical contract
+
+Upstream stage: `siril-starnet-removal`
+
+Required preserved star input:
+
+- `processing/starnet/SHO-stars-unscreen.fit`
+
+Canonical outputs:
+
+- `processing/star-processing/SHO-stars-processed.fit`
+- `processing/star-processing/SHO-stars-processed-before-recombination.png`
+- `processing/star-processing/star-processing-manifest.json`
+- `processing/star-processing/visual-selection-record.json`
+
+Downstream stage: `siril-star-recombination`
+
+The preserved StarNet star layer is a **branch input**. The completed starless branch is not modified by this skill.
+
+## Processing policy
+
+The v1.0.4 engine keeps the validated bright-star dimming policy unchanged.
+
+All candidates use the same target-adaptive PixelMath soft-knee compression:
+
+- threshold quantile 0.99
+- knee strength 0.80
+- base scale 0.92
+
+The candidate family isolates only **purple-fringe strength** while freezing the accepted r5 red cleanup and brightness behavior:
+
+- candidate-00 — exact accepted r5 result: red direct strength 0.64 and purple direct strength 0.64
+- candidate-01 — same red treatment, but purple direct strength 0.90 inside the validator-derived bright-star edge annulus
+- candidate-02 — same red treatment, but purple direct strength 1.00 (full neutral blend on detected purple pixels)
+
+The goal is mostly neutral/white-looking stars with substantially reduced bright-star dominance, while preserving faint blue/green stars that are acceptable in a narrowband/SHO context.
+
+In r6, the **red edge treatment is frozen** because r5 largely solved the red dots. The remaining defect is a thin **purple fringe concentrated approximately 1–10 pixels outside bright-star cores**. r6 therefore treats red and purple with separate direct blend strengths and validates both residual purple incidence and saturation on the exact purple pixels detected in the accepted r5 control. Faint isolated blue/green stars elsewhere in the field are not defects.
+
+## r8 geometry correction
+
+r8 fixes a mask-geometry implementation bug: FFT convolution membership is now considered true only when the convolved binary neighborhood value is `>= 0.5`, rather than `> 0`. This prevents tiny positive FFT round-off values from contaminating the intended star-edge mask. The bright-star edge annulus is widened from 1–7 pixels to **1–10 pixels** so the visible outer purple fringe of larger stars is included.
+
+This revision does **not** increase purple strength beyond the existing candidate-02 value of 1.00, and it does not change the validated brightness compressor or the frozen red treatment. The r7 high-zoom exact-path review and no-new-before-fit publication policy remain in force.
+
+## r9 adaptive all-star color cleanup
+
+r9 preserves the successful r8 large-star geometry and processing strengths, but extends purple cleanup to medium and small stars using target-adaptive 3×3 local maxima in the preserved StarNet layer instead of relying only on the global top-0.3% core mask. Candidate-00 exactly reproduces the published r8 candidate-02 result. Candidate-01 expands purple cleanup to peaks at/above the 97.5th luminance percentile and applies conservative green-halo cleanup around neutral stellar cores. Candidate-02 expands purple cleanup to peaks at/above the 95th percentile and applies stronger green-halo cleanup.
+
+Green cleanup is spatially constrained: a green ring is eligible only around a locally detected peak whose core is neutral/non-green. Isolated faint green stars therefore remain protected. The validated brightness compressor, frozen red strength, r8 corrected 1–10 px bright-star geometry, exact-path review, no-new-before-fit publication rule, and candidate-02 large-star purple strength of 1.00 remain unchanged.
+
+r9 replaces the many individual crop reads with one 2×4 multiscale diagnostic contact sheet per candidate. The panel order metadata identifies two bright references, two medium-purple locations, two small-purple locations, and one green-halo location (with deterministic fallbacks when a class is absent).
+
+## Autonomous short-prompt workflow
+
+For `Process <project> with star processing`, perform the following workflow autonomously.
+
+### 1. Enter the stage
+
+Run exactly:
+
+```bash
+{baseDir}/bin/star-processing begin --project "<project>"
+```
+
+Interpret the returned status literally.
+
+- `would_generate_candidates`: immediately continue to step 2. Do not ask the user for permission.
+- `confirmation_required`: report that the stage already completed (or is obsolete) and ask the exact fresh-rerun question returned by the skill. Do not rerun until the user confirms.
+- `blocked`: report the exact blocker and stop.
+
+### 2. Generate candidates
+
+Run exactly:
+
+```bash
+{baseDir}/bin/star-processing advance --project "<project>"
+```
+
+When it returns `visual_review_required`, use only the exact `read_targets[].path` values returned by the command. r9 returns three full-frame previews and one multiscale diagnostic panel per candidate; all six targets are mandatory. r7 returns the three full-frame previews plus deterministic 8x high-zoom crops around the strongest validator purple-fringe locations. Read every returned target; the high-zoom crops are mandatory and decisive for purple-fringe assessment.
+
+### 3. Visual review
+
+Read every returned candidate preview using the Read tool.
+
+Hard path rules:
+
+- use each returned path verbatim;
+- do not discover candidate files with `ls`, `find`, `grep`, `jq`, globbing, directory scans, or guessed paths;
+- if any exact Read fails, stop and report the exact failed path;
+- review every eligible candidate before publication.
+
+Compare:
+
+- star color neutrality / whiteness;
+- whether tiny **red edge specks** remain around bright stars;
+- whether thin **purple fringe** remains around bright stars in the returned 8x high-zoom crops, especially in the approximately 1–10 pixel edge annulus;
+- bright-star dominance;
+- retention of dim blue/green stars;
+- star profiles, halos, ringing, or other artifacts;
+- overall balance for a nebula-focused image.
+
+### 4. Select and publish
+
+Call the same installed entrypoint with the exact `run_root` returned by `advance`:
+
+```bash
+{baseDir}/bin/star-processing select-publish \
+  --project "<project>" \
+  --run-root "<exact run_root>" \
+  --candidate "<selected candidate>" \
+  --compared "candidate-00" --note "<specific visual observations>" \
+  --compared "candidate-01" --note "<specific visual observations>" \
+  --compared "candidate-02" --note "<specific visual observations>"
+```
+
+Notes must be specific enough to show that red specks, purple fringe, bright-star dominance, dim-star retention, profiles/artifacts, and overall balance were actually assessed.
+
+After successful publication, report:
+
+- selected candidate;
+- canonical output path and SHA-256;
+- important visual rationale;
+- important preservation/dimming metrics;
+- next stage: `siril-star-recombination`.
+
+## Fresh reruns
+
+If `begin` says confirmation is required and the user explicitly confirms, run:
+
+```bash
+{baseDir}/bin/star-processing confirm-fresh --project "<project>"
+{baseDir}/bin/star-processing advance --project "<project>"
+```
+
+Then continue autonomously through exact-path visual review and publication.
+
+Never delete or overwrite the existing canonical result before successful publication of the fresh run.
+
+
+## r7 review and retention policy
+
+- Processing math is unchanged from r6.
+- When all candidates remain technically eligible, the technical recommendation is `candidate-02`, because r6 measured zero residual purple-edge incidence for it. Visual review may override this only when the mandatory high-zoom crops show a real tradeoff.
+- Do not create new `SHO-stars-processed.before-<timestamp>.fit` files on publication. Record prior canonical SHA/run/candidate/recovery-path metadata instead.
+- Existing historical `before-*` FITS files are not deleted by this skill. Deletion requires explicit user approval.
