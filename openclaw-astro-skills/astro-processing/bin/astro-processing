@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+PYTHON="/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/.venv/bin/python"
+BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$PYTHON" "$BASE/scripts/orchestrator.py" "$@"
+
