@@ -71,7 +71,9 @@ def direct_fits(path: Path) -> list[Path]:
     return sorted(
         item
         for item in path.iterdir()
-        if item.is_file() and item.suffix.lower() in FITS_SUFFIXES
+        if item.is_file()
+        and not item.name.startswith("._")
+        and item.suffix.lower() in FITS_SUFFIXES
     )
 
 
@@ -376,7 +378,9 @@ def prepare_project_copy(workspace: Path, project_name: str) -> dict[str, Any]:
     filters = sorted(
         item.name
         for item in source_lights_root.iterdir()
-        if item.is_dir() and not item.name.startswith(".")
+        if item.is_dir()
+        and not item.name.startswith(".")
+        and bool(direct_fits(item))
     )
     if not filters:
         raise PrepareCopyError(
@@ -511,12 +515,22 @@ def parse_prepare_arguments(argv: list[str]) -> str | None:
     return None
 
 
+
+def resolve_workspace_root() -> Path:
+    explicit = os.environ.get("ASTROPROC_WORKSPACE_ROOT")
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    projects = os.environ.get("ASTROPROC_PROJECTS_ROOT")
+    if projects:
+        return Path(projects).expanduser().resolve().parent
+    return Path(__file__).resolve().parent.parent
+
 def maybe_handle_prepare(argv: list[str]) -> int | None:
     project_name = parse_prepare_arguments(argv)
     if project_name is None:
         return None
     try:
-        prepare_project_copy(Path.cwd(), project_name)
+        prepare_project_copy(resolve_workspace_root(), project_name)
     except PrepareCopyError as exc:
         eprint(f"Prepare failed: {exc}")
         return 2

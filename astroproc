@@ -13,6 +13,13 @@ _astroproc_prepare_copy_exit = _astroproc_maybe_handle_prepare(
 if _astroproc_prepare_copy_exit is not None:
     raise SystemExit(_astroproc_prepare_copy_exit)
 # ASTROPROC_PREPARE_COPY_PATCH_V1_END
+# ASTROPROC_SOURCE_COPY_PATCH_V1_START
+import sys as _astroproc_source_copy_sys
+from astroproc_copy_source import maybe_handle_copy as _astroproc_maybe_handle_copy
+_astroproc_source_copy_exit = _astroproc_maybe_handle_copy(_astroproc_source_copy_sys.argv[1:])
+if _astroproc_source_copy_exit is not None:
+    raise SystemExit(_astroproc_source_copy_exit)
+# ASTROPROC_SOURCE_COPY_PATCH_V1_END
 import argparse
 import os
 import re
@@ -182,7 +189,7 @@ def main():
 
     projects_root = os.environ.get("ASTROPROC_PROJECTS_ROOT")
     if not projects_root:
-        projects_root = astro_root / "Projects"
+        projects_root = astro_root.parent / "Projects"
 
     # Handle prepare project
     if args.prepare:
