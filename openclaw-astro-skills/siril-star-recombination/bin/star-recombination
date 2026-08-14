@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PYTHON_BIN="/home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/.venv/bin/python"
+SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/star_recombination.py"
+exec "$PYTHON_BIN" "$SCRIPT" "$@"
