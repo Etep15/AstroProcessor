@@ -23,12 +23,31 @@ def load_module(path: Path, name: str):
         raise
     return mod
 
-def write_fit(path: Path, *, filt: str | None, date: str | None, value: float = 1.0):
+def write_fit(path: Path, filt: str | None, date: str, value: int = 1) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    h = fits.Header()
-    if filt is not None: h["FILTER"] = filt
-    if date is not None: h["DATE-OBS"] = date
-    fits.PrimaryHDU(data=np.full((8, 8), value, dtype=np.float32), header=h).writeto(path)
+    parts = set(part.casefold() for part in path.parts)
+    if "dark" in parts:
+        image_type, exptime, temperature = "Dark", 30.0, -20.0
+    elif "bias" in parts:
+        image_type, exptime, temperature = "Bias", 0.001, -20.0
+    elif "flat" in parts:
+        image_type, exptime, temperature = "Flat", 0.2, -20.0
+    else:
+        image_type, exptime, temperature = "Light", 30.0, -20.0
+    header = fits.Header()
+    header["DATE-OBS"] = date
+    header["IMAGETYP"] = image_type
+    header["INSTRUME"] = "ZWO ASI533MM Pro"
+    header["XBINNING"] = 1
+    header["YBINNING"] = 1
+    header["GAIN"] = 102
+    header["OFFSET"] = 70
+    header["EXPTIME"] = exptime
+    header["CCD-TEMP"] = temperature
+    if filt is not None:
+        header["FILTER"] = filt
+    fits.PrimaryHDU(np.full((4, 4), value, dtype=np.uint16), header=header).writeto(path)
+
 
 def make_source(root: Path):
     base = root / "Autorun"

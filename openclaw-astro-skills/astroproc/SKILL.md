@@ -5,6 +5,42 @@ user-invocable: true
 metadata: {"openclaw":{"os":["linux"]}}
 ---
 
+<!-- ASTROPROC-CALIBRATION-SELECTION-V2-START -->
+
+# Calibration selection v2
+
+`astroproc -p` keeps Siril-compatible copy mode: `processing/<filter>/darks`
+and `processing/<filter>/biases` are real directories containing direct FITS
+copies. Directory symlinks are not used for prepared Siril inputs.
+
+The active shared calibration library is:
+
+    /home/peter/.openclaw/workspace/agents/codewarrior/calibration
+
+Dated subdirectories are organizational only. Capture date MUST NOT be used to
+rank or select calibration frames.
+
+For darks, AstroProcessor recursively evaluates FITS headers and requires a
+compatible image type, camera, binning, gain, offset, dimensions, exposure, and
+sensor temperature. `FILTER` is ignored for dark compatibility. For this cooled
+camera workflow, dark temperature must be within ±1.0 C of the median light
+sensor temperature.
+
+For biases, AstroProcessor requires compatible image type, camera, binning,
+gain, offset, dimensions, and sensor temperature, then selects the dominant
+compatible bias-exposure group. `FILTER` and capture date are ignored.
+
+All matching frames across all dated subdirectories are selected. Prepare must
+fail closed when no compatible calibration population exists.
+
+If a real prepared dark/bias directory already contains FITS files outside the
+current compatibility selection, prepare must stop before copying and preserve
+the existing files. It must never silently mix stale incompatible calibration
+frames with a newly selected population.
+
+<!-- ASTROPROC-CALIBRATION-SELECTION-V2-END -->
+
+
 <!-- ASTROPROC-PREPARE-COPY-OVERRIDE-START -->
 
 # Prepare copy-mode override
@@ -99,11 +135,11 @@ Executable:
 
 Projects:
 
-    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/Projects
+    /home/peter/.openclaw/workspace/agents/codewarrior/Projects
 
 Shared calibration:
 
-    /home/peter/.openclaw/workspace/agents/codewarrior/AstroProcessor/calibration
+    /home/peter/.openclaw/workspace/agents/codewarrior/calibration
 
 Always invoke the executable by its absolute path.
 
